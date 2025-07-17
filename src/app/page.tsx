@@ -1103,7 +1103,20 @@ export default function InventoryAnalysis() {
         setFilteredData(updatedData);
         toast.success(`SKU ${sku} 库存状态已同步为${targetStatus === 'instock' ? '有货' : '无货'}`);
       } else {
-        throw new Error('同步失败');
+        const errorData = await response.json();
+        
+        if (response.status === 401) {
+          toast.error(`API权限错误：${errorData.error}`, {
+            description: errorData.solution,
+            duration: 8000
+          });
+        } else {
+          toast.error(`同步失败：${errorData.error || '未知错误'}`, {
+            description: errorData.details ? `详情：${errorData.details}` : undefined,
+            duration: 5000
+          });
+        }
+        throw new Error(errorData.error || '同步失败');
       }
     } catch (error) {
       console.error('同步失败:', error);
@@ -1169,30 +1182,32 @@ export default function InventoryAnalysis() {
         if (response.ok) {
           return { sku, targetStatus, success: true };
         } else {
-          return { sku, targetStatus, success: false };
+          const errorData = await response.json();
+          return { sku, targetStatus, success: false, error: errorData.error };
         }
       });
 
-      const results = await Promise.all(syncPromises);
+            const results = await Promise.all(syncPromises);
       const successCount = results.filter(r => r?.success).length;
       const failCount = results.filter(r => r?.success === false).length;
+      const failedResults = results.filter(r => r?.success === false);
 
-             // 更新本地数据
-       const updatedData = filteredData.map(item => {
-         const result = results.find(r => r?.sku === getFieldValue(item, '产品代码'));
-         if (result?.success) {
-           return {
-             ...item,
-             productData: {
-               isOnline: item.productData?.isOnline ?? false,
-               status: item.productData?.status ?? 'notfound',
-               stockStatus: result.targetStatus,
-               productUrl: item.productData?.productUrl
-             }
-           };
-         }
-         return item;
-       });
+      // 更新本地数据
+      const updatedData = filteredData.map(item => {
+        const result = results.find(r => r?.sku === getFieldValue(item, '产品代码'));
+        if (result?.success) {
+          return {
+            ...item,
+            productData: {
+              isOnline: item.productData?.isOnline ?? false,
+              status: item.productData?.status ?? 'notfound',
+              stockStatus: result.targetStatus,
+              productUrl: item.productData?.productUrl
+            }
+          };
+        }
+        return item;
+      });
       
       setFilteredData(updatedData);
       setSelectedSkusForSync(new Set());
@@ -1201,7 +1216,16 @@ export default function InventoryAnalysis() {
         toast.success(`成功同步 ${successCount} 个SKU的库存状态`);
       }
       if (failCount > 0) {
-        toast.error(`${failCount} 个SKU同步失败`);
+        // 检查是否有权限错误
+        const hasAuthError = failedResults.some(r => r?.error?.includes('权限') || r?.error?.includes('authentication'));
+        if (hasAuthError) {
+          toast.error(`${failCount} 个SKU同步失败`, {
+            description: '请检查API密钥是否具有写入权限',
+            duration: 8000
+          });
+        } else {
+          toast.error(`${failCount} 个SKU同步失败`);
+        }
       }
     } catch (error) {
       console.error('批量同步失败:', error);
