@@ -66,6 +66,10 @@ npm run dev
 - **库存数据**: CSV格式，GB2312编码
 - **在途订单**: Excel格式，包含产品型号、产品英文名称、数量三列
 
+### 📚 详细文档
+- [WooCommerce API设置指南](./WooCommerce_API_Setup_Guide.md)
+- [变体产品同步指南](./Product_Variations_Guide.md)
+
 ## 功能特色
 
 ### 库存分析
