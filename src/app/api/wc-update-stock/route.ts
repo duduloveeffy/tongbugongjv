@@ -71,9 +71,7 @@ export async function POST(request: NextRequest) {
     }
     
     const updateData = {
-      stock_status: stockStatus,
-      manage_stock: true,
-      stock_quantity: stockStatus === 'instock' ? 1 : 0
+      stock_status: stockStatus
     };
 
     console.log('更新产品URL:', updateUrl);
