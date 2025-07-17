@@ -176,7 +176,7 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
         }
         
         const totalOrders = orders.length;
-        const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total), 0);
+        const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total || '0'), 0);
         const averageOrderValue = totalRevenue / totalOrders;
         
         // Count orders by status
@@ -192,9 +192,9 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
           order.line_items.forEach(item => {
             const key = item.sku || item.name;
             if (key) {
-              const existing = productStats.get(key) || { name: item.name, quantity: 0, revenue: 0 };
-              existing.quantity += item.quantity;
-              existing.revenue += parseFloat(item.total);
+              const existing = productStats.get(key) || { name: item.name || 'Unknown', quantity: 0, revenue: 0 };
+              existing.quantity += item.quantity || 0;
+              existing.revenue += parseFloat(item.total || '0');
               productStats.set(key, existing);
             }
           });
@@ -209,10 +209,13 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
         const dailyStats = new Map<string, { orders: number; revenue: number }>();
         
         orders.forEach(order => {
-          const date = order.date_created.split('T')[0];
+          const dateCreated = order.date_created;
+          if (!dateCreated) return; // 跳过没有创建日期的订单
+          const date = dateCreated.split('T')[0];
+          if (!date) return; // 额外的安全检查
           const existing = dailyStats.get(date) || { orders: 0, revenue: 0 };
           existing.orders += 1;
-          existing.revenue += parseFloat(order.total);
+          existing.revenue += parseFloat(order.total || '0');
           dailyStats.set(date, existing);
         });
         
