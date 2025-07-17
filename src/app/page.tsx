@@ -1273,7 +1273,10 @@ export default function InventoryAnalysis() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
-        <h1 className="text-3xl font-bold">ERP数据分析系统</h1>
+        <div className="flex items-center justify-center gap-4 mb-2">
+          <img src="/logo.svg" alt="ERP数据分析系统" className="w-16 h-16" />
+          <h1 className="text-3xl font-bold">ERP数据分析系统</h1>
+        </div>
         <p className="text-muted-foreground mt-2">库存分析 & 销量检测</p>
 					</div>
 					
