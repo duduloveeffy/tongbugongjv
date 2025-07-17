@@ -70,6 +70,7 @@ npm run dev
 - [库存同步功能说明](./库存同步功能说明.md)
 - [WooCommerce API设置指南](./WooCommerce_API_Setup_Guide.md)
 - [变体产品同步指南](./Product_Variations_Guide.md)
+- [品牌更新说明](./品牌更新说明.md)
 
 ## 功能特色
 
