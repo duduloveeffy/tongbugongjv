@@ -54,10 +54,21 @@ export async function POST(request: NextRequest) {
     }
 
     const product = products[0];
-    console.log('找到产品:', { id: product.id, sku: product.sku, name: product.name });
+    console.log('找到产品:', { id: product.id, sku: product.sku, name: product.name, type: product.type });
     
-    // 第二步：更新产品的库存状态
-    const updateUrl = `${cleanUrl}/wp-json/wc/v3/products/${product.id}`;
+    // 检查是否是变体产品
+    const isVariation = product.type === 'variation';
+    
+    let updateUrl: string;
+    if (isVariation) {
+      // 变体产品需要使用变体API端点
+      // 先获取父产品ID
+      const parentId = product.parent_id;
+      updateUrl = `${cleanUrl}/wp-json/wc/v3/products/${parentId}/variations/${product.id}`;
+    } else {
+      // 普通产品使用标准端点
+      updateUrl = `${cleanUrl}/wp-json/wc/v3/products/${product.id}`;
+    }
     
     const updateData = {
       stock_status: stockStatus,
@@ -67,6 +78,7 @@ export async function POST(request: NextRequest) {
 
     console.log('更新产品URL:', updateUrl);
     console.log('更新数据:', updateData);
+    console.log('产品类型:', isVariation ? '变体产品' : '普通产品');
 
     const updateResponse = await fetch(updateUrl, {
       method: 'PUT',
@@ -98,6 +110,22 @@ export async function POST(request: NextRequest) {
           solution: '请在WooCommerce后台重新生成具有"读/写"权限的API密钥',
           details: errorText 
         }, { status: 401 });
+      }
+      
+      // 检查是否是变体产品相关错误
+      if (updateResponse.status === 404) {
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData.code === 'woocommerce_rest_invalid_product_id') {
+            return NextResponse.json({ 
+              error: '产品类型错误：这可能是一个变体产品，需要使用变体API端点',
+              solution: '请检查产品是否为变体产品（不同颜色、尺寸等）',
+              details: errorText 
+            }, { status: 404 });
+          }
+        } catch (e) {
+          // 忽略JSON解析错误
+        }
       }
       
       return NextResponse.json({ error: '更新产品失败', details: errorText }, { status: 500 });

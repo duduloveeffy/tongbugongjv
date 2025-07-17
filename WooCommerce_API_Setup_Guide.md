@@ -75,6 +75,15 @@ WooCommerce → 设置 → 高级 → REST API
 - 检查产品是否已发布
 - 验证SKU字段没有额外的空格
 
+### 问题2.1：变体产品错误
+**错误信息**：`Pour manipuler les variations de produit, vous devez utiliser le point de terminaison...`
+
+**解决方案**：
+- 这是变体产品（Product Variations）的问题
+- 系统已自动处理变体产品的同步
+- 确保变体产品的父产品也已发布
+- 如果仍有问题，检查变体产品的SKU是否正确设置
+
 ### 问题3：网站URL错误
 **解决方案**：
 - 确保URL格式正确（包含https://或http://）
