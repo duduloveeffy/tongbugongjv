@@ -1274,7 +1274,9 @@ export default function InventoryAnalysis() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
         <div className="flex items-center justify-center gap-4 mb-2">
-          <img src="/logo.svg" alt="ERP数据分析系统" className="w-16 h-16" />
+          <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
+            <div className="text-white text-2xl font-bold">📊</div>
+          </div>
           <h1 className="text-3xl font-bold">ERP数据分析系统</h1>
         </div>
         <p className="text-muted-foreground mt-2">库存分析 & 销量检测</p>

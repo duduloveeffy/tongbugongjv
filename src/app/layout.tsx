@@ -8,9 +8,9 @@ export const metadata: Metadata = {
 	title: "ERP数据分析系统 - 库存分析与销量检测",
 	description: "专业的ERP数据分析工具，支持库存分析、销量检测、WooCommerce集成等功能",
 	icons: [
-		{ rel: "icon", url: "/icon.svg", type: "image/svg+xml" },
+		{ rel: "icon", url: "/favicon.svg", type: "image/svg+xml" },
 		{ rel: "icon", url: "/favicon.ico" },
-		{ rel: "apple-touch-icon", url: "/icon.svg" }
+		{ rel: "apple-touch-icon", url: "/favicon.svg" }
 	],
 };
 
