@@ -1130,7 +1130,7 @@ export default function InventoryAnalysis() {
     }
   };
 
-  // 批量同步库存状态
+    // 批量同步库存状态
   const syncMultipleSkus = async () => {
     if (selectedSkusForSync.size === 0) {
       toast.error('请选择要同步的SKU');
@@ -1150,18 +1150,10 @@ export default function InventoryAnalysis() {
         const item = filteredData.find(item => getFieldValue(item, '产品代码') === sku);
         if (!item) return;
 
-        const netStock = calculateNetStock(item);
         const currentStatus = item.productData?.stockStatus || 'outofstock';
         
-        // 判断应该同步的状态
-        let targetStatus: 'instock' | 'outofstock';
-        if (currentStatus === 'instock' && netStock < 0) {
-          targetStatus = 'outofstock';
-        } else if (currentStatus === 'outofstock' && netStock > 0) {
-          targetStatus = 'instock';
-        } else {
-          return; // 不需要同步
-        }
+        // 直接切换状态：有货变无货，无货变有货
+        const targetStatus: 'instock' | 'outofstock' = currentStatus === 'instock' ? 'outofstock' : 'instock';
 
         const params = new URLSearchParams({
           siteUrl: settings.siteUrl,
@@ -1187,7 +1179,7 @@ export default function InventoryAnalysis() {
         }
       });
 
-            const results = await Promise.all(syncPromises);
+      const results = await Promise.all(syncPromises);
       const successCount = results.filter(r => r?.success).length;
       const failCount = results.filter(r => r?.success === false).length;
       const failedResults = results.filter(r => r?.success === false);
@@ -1788,14 +1780,14 @@ export default function InventoryAnalysis() {
                         {isProductDetectionEnabled && (
                           <>
                             <TableCell>
-                              <Badge variant={item.productData?.isOnline ? 'default' : 'secondary'}>
+                              <Badge variant={item.productData?.isOnline ? 'default' : 'destructive'}>
                                 {item.productData?.isOnline ? '已上架' : '未上架'}
                               </Badge>
                             </TableCell>
                             <TableCell>
                               <Badge variant={
                                 item.productData?.stockStatus === 'instock' ? 'default' : 
-                                item.productData?.stockStatus === 'onbackorder' ? 'destructive' : 'secondary'
+                                item.productData?.stockStatus === 'onbackorder' ? 'destructive' : 'destructive'
                               }>
                                 {item.productData?.stockStatus === 'instock' ? '有货' : 
                                  item.productData?.stockStatus === 'onbackorder' ? '缺货' : '无货'}
@@ -1803,20 +1795,22 @@ export default function InventoryAnalysis() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
-                                {syncRecommendation.shouldSync && (
-                                  <Checkbox
-                                    checked={isSkuSelected}
-                                    onCheckedChange={(checked) => handleSkuSelectionChange(sku, checked as boolean)}
-                                    disabled={isSkuSyncing}
-                                  />
-                                )}
+                                <Checkbox
+                                  checked={isSkuSelected}
+                                  onCheckedChange={(checked) => handleSkuSelectionChange(sku, checked as boolean)}
+                                  disabled={isSkuSyncing}
+                                />
                                 <Button
                                   size="sm"
                                   variant={
                                     syncRecommendation.type === 'to-outofstock' ? 'destructive' : 
                                     syncRecommendation.type === 'to-instock' ? 'default' : 'outline'
                                   }
-                                  onClick={() => syncSingleSku(sku, syncRecommendation.targetStatus)}
+                                  onClick={() => {
+                                    const currentStatus = item.productData?.stockStatus || 'outofstock';
+                                    const newStatus = currentStatus === 'instock' ? 'outofstock' : 'instock';
+                                    syncSingleSku(sku, newStatus);
+                                  }}
                                   disabled={isSkuSyncing}
                                   title={syncRecommendation.reason}
                                 >
@@ -1824,8 +1818,7 @@ export default function InventoryAnalysis() {
                                     <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
                                   ) : (
                                     <>
-                                      {syncRecommendation.type === 'to-outofstock' ? '同步无货' : 
-                                       syncRecommendation.type === 'to-instock' ? '同步有货' : '无需同步'}
+                                      {item.productData?.stockStatus === 'instock' ? '同步无货' : '同步有货'}
                                     </>
                                   )}
                                 </Button>
@@ -1856,7 +1849,7 @@ export default function InventoryAnalysis() {
                   ) : (
                     <>
                       <Package className="h-4 w-4" />
-                      批量同步库存状态 ({selectedSkusForSync.size})
+                      批量切换库存状态 ({selectedSkusForSync.size})
                     </>
                   )}
                 </Button>
@@ -1868,7 +1861,7 @@ export default function InventoryAnalysis() {
                   清空选择
                 </Button>
                 <div className="text-sm text-muted-foreground">
-                  已选择 {selectedSkusForSync.size} 个SKU
+                  已选择 {selectedSkusForSync.size} 个SKU，将切换为相反状态
                 </div>
               </div>
             )}
