@@ -142,10 +142,12 @@ export default function InventoryAnalysis() {
       
       if (items.length === 1) {
         // 只有一个仓库的数据，直接使用，确保在途字段存在
+        const 在途数量 = firstItem.在途数量 || 0;
+        const 净可售库存 = calculateNetStock(firstItem);
         merged.push({
           ...firstItem,
-          在途数量: firstItem.在途数量 || 0,
-          在途库存: firstItem.在途库存 || 0,
+          在途数量: 在途数量,
+          在途库存: 净可售库存 + 在途数量,
         });
       } else {
         // 多个仓库的数据，需要合并
@@ -193,7 +195,18 @@ export default function InventoryAnalysis() {
           可售总库存: String(items.reduce((sum, item) => sum + (Number(item.可售总库存) || 0), 0)),
           // 在途数量和在途库存的计算
           在途数量: items.reduce((sum, item) => sum + (Number(item.在途数量) || 0), 0),
-          在途库存: items.reduce((sum, item) => sum + (Number(item.在途库存) || 0), 0),
+          在途库存: (() => {
+            // 计算合并后的净可售库存
+            const mergedNetStock = items.reduce((sum, item) => {
+              const baseStock = Number(item['可售库存减去缺货占用库存']) || 0;
+              const shortage = Number(item.缺货) || 0;
+              return sum + (baseStock - shortage);
+            }, 0);
+            // 计算合并后的在途数量
+            const mergedTransitQuantity = items.reduce((sum, item) => sum + (Number(item.在途数量) || 0), 0);
+            // 在途库存 = 合并后的净可售库存 + 合并后的在途数量
+            return mergedNetStock + mergedTransitQuantity;
+          })(),
         };
         merged.push(mergedItem);
       }
@@ -234,11 +247,15 @@ export default function InventoryAnalysis() {
       }
 
       // 确保所有项目都有在途数量和在途库存字段
-      filtered = filtered.map(item => ({
-        ...item,
-        在途数量: item.在途数量 || 0,
-        在途库存: item.在途库存 || 0,
-      }));
+      filtered = filtered.map(item => {
+        const 在途数量 = item.在途数量 || 0;
+        const 净可售库存 = calculateNetStock(item);
+        return {
+          ...item,
+          在途数量: 在途数量,
+          在途库存: 净可售库存 + 在途数量,
+        };
+      });
 
       setFilteredData(filtered);
     }
@@ -373,10 +390,12 @@ export default function InventoryAnalysis() {
       
       // 如果指定了目标仓库，只更新该仓库的数据
       if (targetWarehouse && item.仓库 !== targetWarehouse) {
+        const 在途数量 = item.在途数量 || 0;
+        const 净可售库存 = calculateNetStock(item);
         return {
           ...item,
-          在途数量: item.在途数量 || 0,
-          在途库存: item.在途库存 || 0,
+          在途数量: 在途数量,
+          在途库存: 净可售库存 + 在途数量,
         };
       }
       
@@ -418,11 +437,15 @@ export default function InventoryAnalysis() {
     }
     
     // 确保所有项目都有在途数量和在途库存字段
-    filtered = filtered.map(item => ({
-      ...item,
-      在途数量: item.在途数量 || 0,
-      在途库存: item.在途库存 || 0,
-    }));
+    filtered = filtered.map(item => {
+      const 在途数量 = item.在途数量 || 0;
+      const 净可售库存 = calculateNetStock(item);
+      return {
+        ...item,
+        在途数量: 在途数量,
+        在途库存: 净可售库存 + 在途数量,
+      };
+    });
     
     setFilteredData(filtered);
   };
