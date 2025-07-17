@@ -70,9 +70,26 @@ export async function POST(request: NextRequest) {
       updateUrl = `${cleanUrl}/wp-json/wc/v3/products/${product.id}`;
     }
     
-    const updateData = {
+    // 构建更新数据
+    const updateData: any = {
       stock_status: stockStatus
     };
+    
+    // 如果要设置为有货，但当前库存为0或未管理库存，我们需要：
+    // 1. 关闭库存管理或设置一个最小库存数量
+    // 2. 这样stock_status才能真正生效
+    if (stockStatus === 'instock') {
+      // 方案1：关闭库存管理，让stock_status完全控制库存状态
+      updateData.manage_stock = false;
+      
+      // 方案2：或者设置一个最小库存数量（备用方案）
+      // updateData.manage_stock = true;
+      // updateData.stock_quantity = 1;
+    } else if (stockStatus === 'outofstock') {
+      // 设置为缺货时，可以启用库存管理并设置数量为0
+      updateData.manage_stock = true;
+      updateData.stock_quantity = 0;
+    }
 
     console.log('更新产品URL:', updateUrl);
     console.log('更新数据:', updateData);
