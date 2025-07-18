@@ -152,6 +152,11 @@ export default function InventoryAnalysis() {
       } else {
         // 多个仓库的数据，需要合并
         const warehouses = items.map(item => item.仓库).filter(w => w).join(', ');
+        
+        // 查找是否有已有的productData或salesData
+        const itemWithProductData = items.find(item => item.productData);
+        const itemWithSalesData = items.find(item => item.salesData);
+        
         const mergedItem: InventoryItem = {
           产品代码: firstItem.产品代码,
           产品名称: firstItem.产品名称,
@@ -207,6 +212,9 @@ export default function InventoryAnalysis() {
             // 在途库存 = 合并后的净可售库存 + 合并后的在途数量
             return mergedNetStock + mergedTransitQuantity;
           })(),
+          // 保留已有的productData和salesData
+          productData: itemWithProductData?.productData,
+          salesData: itemWithSalesData?.salesData,
         };
         merged.push(mergedItem);
       }
@@ -246,14 +254,21 @@ export default function InventoryAnalysis() {
         filtered = filtered.filter(item => item.一级品类 === categoryFilter);
       }
 
-      // 确保所有项目都有在途数量和在途库存字段
+      // 确保所有项目都有在途数量和在途库存字段，同时保留productData和salesData
       filtered = filtered.map(item => {
         const 在途数量 = item.在途数量 || 0;
         const 净可售库存 = calculateNetStock(item);
+        
+        // 查找对应的原始数据以保留productData和salesData
+        const originalData = filteredData.find(original => original.产品代码 === item.产品代码);
+        
         return {
           ...item,
           在途数量: 在途数量,
           在途库存: 净可售库存 + 在途数量,
+          // 保留已有的productData和salesData
+          productData: originalData?.productData || item.productData,
+          salesData: originalData?.salesData || item.salesData,
         };
       });
 
@@ -384,7 +399,7 @@ export default function InventoryAnalysis() {
       transitMap.set(sku, (transitMap.get(sku) || 0) + item.数量);
     });
     
-    // 更新库存数据
+    // 更新库存数据，保留已有的productData和salesData
     const updatedInventoryData = inventoryData.map(item => {
       const sku = item.产品代码;
       
@@ -411,7 +426,7 @@ export default function InventoryAnalysis() {
     
     setInventoryData(updatedInventoryData);
     
-    // 重新应用筛选
+    // 重新应用筛选，保留已有的productData和salesData
     let baseData = updatedInventoryData;
     if (isMergedMode) {
       baseData = mergeWarehouseData(updatedInventoryData);
@@ -436,14 +451,21 @@ export default function InventoryAnalysis() {
       filtered = filtered.filter(item => item.一级品类 === categoryFilter);
     }
     
-    // 确保所有项目都有在途数量和在途库存字段
+    // 确保所有项目都有在途数量和在途库存字段，同时保留productData和salesData
     filtered = filtered.map(item => {
       const 在途数量 = item.在途数量 || 0;
       const 净可售库存 = calculateNetStock(item);
+      
+      // 查找对应的原始数据以保留productData和salesData
+      const originalData = filteredData.find(original => original.产品代码 === item.产品代码);
+      
       return {
         ...item,
         在途数量: 在途数量,
         在途库存: 净可售库存 + 在途数量,
+        // 保留已有的productData和salesData
+        productData: originalData?.productData || item.productData,
+        salesData: originalData?.salesData || item.salesData,
       };
     });
     

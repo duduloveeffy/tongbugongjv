@@ -74,6 +74,7 @@ npm run dev
 - [图标修复说明](./图标修复说明.md)
 - [并行查询问题修复](./docs/parallel-query-fix.md)
 - [性能优化方案](./docs/performance-optimization.md)
+- [数据保留问题修复](./docs/data-preservation-fix.md)
 
 ## 功能特色
 
