@@ -72,6 +72,7 @@ npm run dev
 - [变体产品同步指南](./Product_Variations_Guide.md)
 - [品牌更新说明](./品牌更新说明.md)
 - [图标修复说明](./图标修复说明.md)
+- [并行查询问题修复](./docs/parallel-query-fix.md)
 
 ## 功能特色
 

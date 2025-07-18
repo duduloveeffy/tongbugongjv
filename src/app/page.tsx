@@ -984,34 +984,75 @@ export default function InventoryAnalysis() {
         });
       });
 
-      // 优化的产品信息获取 - 并行查询多个SKU
-      setProductDetectionProgress(`正在并行查询 ${skus.length} 个SKU...`);
+      // 优化的产品信息获取 - 使用并发控制避免API限制
+      setProductDetectionProgress(`正在查询 ${skus.length} 个SKU（使用并发控制）...`);
       
-      // 并行查询所有SKU
-      const fetchPromises = skus.map(async (sku, index) => {
-        try {
-          const params = new URLSearchParams({
-            siteUrl: settings.siteUrl,
-            consumerKey: settings.consumerKey,
-            consumerSecret: settings.consumerSecret,
-            sku: sku
-          });
+      // 并发控制：每次最多同时查询3个SKU
+      const batchSize = 3;
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+      
+      const allProducts: any[] = [];
+      
+      for (let i = 0; i < skus.length; i += batchSize) {
+        const batch = skus.slice(i, i + batchSize);
+        setProductDetectionProgress(`正在查询第 ${i + 1}-${Math.min(i + batchSize, skus.length)} 个SKU...`);
+        
+        // 并发查询当前批次
+        const batchPromises = batch.map(async (sku, batchIndex) => {
+          const retryCount = 3; // 重试3次
           
-          const response = await fetch(`/api/wc-products?${params.toString()}`);
-          
-          if (response.ok) {
-            const products = await response.json();
-            setProductDetectionProgress(`已完成 ${index + 1}/${skus.length} 个SKU查询`);
-            return products;
+          for (let retry = 0; retry < retryCount; retry++) {
+            try {
+              const params = new URLSearchParams({
+                siteUrl: settings.siteUrl,
+                consumerKey: settings.consumerKey,
+                consumerSecret: settings.consumerSecret,
+                sku: sku
+              });
+              
+              const response = await fetch(`/api/wc-products?${params.toString()}`);
+              
+              if (response.ok) {
+                const products = await response.json();
+                return { sku, products, success: true };
+              } else if (response.status === 429) {
+                // 如果遇到频率限制，等待更长时间
+                console.log(`SKU ${sku} 遇到频率限制，等待重试...`);
+                await delay(2000 * (retry + 1));
+                continue;
+              } else {
+                console.error(`SKU ${sku} 查询失败，状态码: ${response.status}`);
+                return { sku, products: [], success: false };
+              }
+            } catch (error) {
+              console.error(`SKU ${sku} 查询出错 (重试 ${retry + 1}/${retryCount}):`, error);
+              if (retry < retryCount - 1) {
+                await delay(1000 * (retry + 1));
+                continue;
+              }
+              return { sku, products: [], success: false };
+            }
           }
-        } catch (error) {
-          console.error(`Failed to fetch product with SKU ${sku}:`, error);
+          
+          return { sku, products: [], success: false };
+        });
+        
+        // 等待当前批次完成
+        const batchResults = await Promise.all(batchPromises);
+        
+        // 处理当前批次的结果
+        batchResults.forEach(result => {
+          if (result.success && result.products.length > 0) {
+            allProducts.push(...result.products);
+          }
+        });
+        
+        // 批次间延迟，避免API频率限制
+        if (i + batchSize < skus.length) {
+          setProductDetectionProgress(`批次完成，等待1秒后继续...`);
+          await delay(1000);
         }
-        return [];
-      });
-      
-      const results = await Promise.all(fetchPromises);
-      const allProducts = results.flat();
+      }
 
       const products = allProducts;
       
@@ -1044,7 +1085,8 @@ export default function InventoryAnalysis() {
       setProductDetectionProgress('');
       
       const foundCount = products.length;
-      toast.success(`成功检测 ${skus.length} 个SKU，找到 ${foundCount} 个产品的上架状态`);
+      const successRate = ((foundCount / skus.length) * 100).toFixed(1);
+      toast.success(`成功检测 ${skus.length} 个SKU，找到 ${foundCount} 个产品 (成功率: ${successRate}%)`);
       
     } catch (error) {
       console.error('产品检测失败:', error);
