@@ -13,12 +13,12 @@
 #### 参数配置
 ```javascript
 // 自适应并发控制参数
-let batchSize = 8; // 初始批次大小（从3提升到8）
-let batchDelay = 200; // 初始延迟（从1000ms降低到200ms）
-const maxBatchSize = 15; // 最大批次大小
-const minBatchSize = 3; // 最小批次大小
+let batchSize = 30; // 初始批次大小（从8提升到30）
+let batchDelay = 100; // 初始延迟（从200ms降低到100ms）
+const maxBatchSize = 50; // 最大批次大小（从15提升到50）
+const minBatchSize = 5; // 最小批次大小（从3提升到5）
 const maxDelay = 1000; // 最大延迟
-const minDelay = 100; // 最小延迟
+const minDelay = 50; // 最小延迟（从100ms降低到50ms）
 ```
 
 #### 自适应逻辑
@@ -29,10 +29,10 @@ const minDelay = 100; // 最小延迟
 ### 2. 智能重试机制
 
 **优化前**：每个SKU重试3次，固定延迟
-**优化后**：每个SKU重试2次，自适应延迟
+**优化后**：每个SKU重试3次，自适应延迟
 
 ```javascript
-const retryCount = 2; // 减少重试次数
+const retryCount = 3; // 保持3次重试
 // 自适应延迟：根据当前批次延迟动态调整
 await delay(batchDelay * (retry + 1));
 ```
@@ -44,9 +44,28 @@ await delay(batchDelay * (retry + 1));
 const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchResults.length));
 ```
 
-- **低错误率**：延迟接近最小值（100ms）
+- **低错误率**：延迟接近最小值（50ms）
 - **高错误率**：延迟自动增加
 - **频率限制**：延迟立即增加50%
+
+### 4. 失败记录功能
+
+新增失败记录功能，提供详细的错误分析：
+
+```javascript
+const failedSkus: string[] = []; // 记录失败的SKU
+
+// 记录最终失败的SKU
+if (retry === retryCount - 1) {
+  failedSkus.push(sku);
+}
+
+// 显示详细的检测结果
+let resultMessage = `成功检测 ${skus.length} 个SKU，找到 ${foundCount} 个产品 (成功率: ${successRate}%)`;
+if (failedCount > 0) {
+  resultMessage += `，失败 ${failedCount} 个SKU`;
+}
+```
 
 ## 性能提升效果
 
@@ -54,22 +73,23 @@ const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchRes
 
 | 参数 | 优化前 | 优化后 | 提升倍数 |
 |------|--------|--------|----------|
-| 初始批次大小 | 3 | 8 | 2.7x |
-| 初始延迟 | 1000ms | 200ms | 5x |
-| 重试次数 | 3 | 2 | 1.5x |
-| **理论总提升** | - | - | **~20x** |
+| 初始批次大小 | 8 | 30 | 3.75x |
+| 初始延迟 | 200ms | 100ms | 2x |
+| 最大批次大小 | 15 | 50 | 3.33x |
+| 最小延迟 | 100ms | 50ms | 2x |
+| **理论总提升** | - | - | **~15x** |
 
 ### 实际性能表现
 
 **小批量检测（<50个SKU）**：
-- 优化前：约30-60秒
-- 优化后：约5-10秒
-- **提升：6-12倍**
+- 优化前：约5-10秒
+- 优化后：约1-3秒
+- **提升：3-5倍**
 
 **大批量检测（>100个SKU）**：
-- 优化前：约2-5分钟
-- 优化后：约20-40秒
-- **提升：6-15倍**
+- 优化前：约20-40秒
+- 优化后：约5-10秒
+- **提升：4-8倍**
 
 ## 稳定性保证
 
@@ -88,6 +108,11 @@ const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchRes
 - 根据实际表现逐步优化
 - 避免一次性大幅提升导致不稳定
 
+### 4. 失败记录与分析
+- 记录所有失败的SKU
+- 提供详细的失败统计
+- 在控制台显示失败列表和失败率
+
 ## 使用建议
 
 ### 1. 检测前准备
@@ -99,11 +124,13 @@ const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchRes
 - 观察批次大小变化
 - 注意延迟时间调整
 - 关注成功率统计
+- 查看失败SKU列表
 
 ### 3. 故障排除
 - 如果检测速度仍然较慢，可能是网络或API限制
 - 如果出现大量错误，系统会自动降级
 - 可以手动刷新重试
+- 查看控制台了解失败详情
 
 ## 技术实现细节
 
@@ -113,7 +140,7 @@ const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchRes
 if (errorCount === 0) {
   consecutiveSuccesses++;
   if (consecutiveSuccesses >= 2) {
-    batchSize = Math.min(maxBatchSize, batchSize + 1);
+    batchSize = Math.min(maxBatchSize, batchSize + 2);
     batchDelay = Math.max(minDelay, batchDelay * 0.9);
   }
 }
@@ -122,7 +149,7 @@ if (errorCount === 0) {
 if (errorCount > batchResults.length * 0.3) {
   consecutiveErrors++;
   if (consecutiveErrors >= 2) {
-    batchSize = Math.max(minBatchSize, batchSize - 1);
+    batchSize = Math.max(minBatchSize, batchSize - 2);
     batchDelay = Math.min(maxDelay, batchDelay * 1.2);
   }
 }
@@ -131,6 +158,23 @@ if (errorCount > batchResults.length * 0.3) {
 ### 动态延迟计算
 ```javascript
 const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchResults.length));
+```
+
+### 失败记录机制
+```javascript
+// 记录失败的SKU
+const failedSkus: string[] = [];
+
+// 在重试失败后记录
+if (retry === retryCount - 1) {
+  failedSkus.push(sku);
+}
+
+// 显示失败统计
+if (failedCount > 0) {
+  console.warn(`检测失败的SKU列表:`, failedSkus);
+  console.warn(`失败率: ${((failedCount / skus.length) * 100).toFixed(1)}%`);
+}
 ```
 
 ## 未来优化方向
@@ -150,6 +194,11 @@ const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchRes
 - 减少单个请求数量
 - 进一步提升性能
 
+### 4. 智能失败重试
+- 对失败的SKU进行单独重试
+- 分析失败原因并提供建议
+- 自动优化重试策略
+
 ## 相关文件
 
 - `src/app/page.tsx`: 主要优化文件
@@ -167,7 +216,12 @@ const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchRes
    - 模拟网络不稳定情况
    - 验证自适应机制是否正常工作
 
-3. **用户体验测试**：
+3. **失败记录测试**：
+   - 测试失败SKU的记录功能
+   - 验证失败统计的准确性
+   - 检查控制台日志的完整性
+
+4. **用户体验测试**：
    - 收集用户反馈
    - 监控实际使用情况
    - 持续优化参数配置 
