@@ -73,6 +73,7 @@ npm run dev
 - [品牌更新说明](./品牌更新说明.md)
 - [图标修复说明](./图标修复说明.md)
 - [并行查询问题修复](./docs/parallel-query-fix.md)
+- [性能优化方案](./docs/performance-optimization.md)
 
 ## 功能特色
 

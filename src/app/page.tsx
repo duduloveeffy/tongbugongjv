@@ -984,22 +984,30 @@ export default function InventoryAnalysis() {
         });
       });
 
-      // 优化的产品信息获取 - 使用并发控制避免API限制
-      setProductDetectionProgress(`正在查询 ${skus.length} 个SKU（使用并发控制）...`);
+      // 优化的产品信息获取 - 自适应并发控制
+      setProductDetectionProgress(`正在查询 ${skus.length} 个SKU（自适应并发）...`);
       
-      // 并发控制：每次最多同时查询3个SKU
-      const batchSize = 3;
+      // 自适应并发控制参数
+      let batchSize = 8; // 初始批次大小
+      let batchDelay = 200; // 初始延迟（毫秒）
+      const maxBatchSize = 15; // 最大批次大小
+      const minBatchSize = 3; // 最小批次大小
+      const maxDelay = 1000; // 最大延迟
+      const minDelay = 100; // 最小延迟
+      
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       
       const allProducts: any[] = [];
+      let consecutiveErrors = 0; // 连续错误计数
+      let consecutiveSuccesses = 0; // 连续成功计数
       
       for (let i = 0; i < skus.length; i += batchSize) {
         const batch = skus.slice(i, i + batchSize);
-        setProductDetectionProgress(`正在查询第 ${i + 1}-${Math.min(i + batchSize, skus.length)} 个SKU...`);
+        setProductDetectionProgress(`正在查询第 ${i + 1}-${Math.min(i + batchSize, skus.length)} 个SKU (批次大小: ${batchSize})...`);
         
         // 并发查询当前批次
         const batchPromises = batch.map(async (sku, batchIndex) => {
-          const retryCount = 3; // 重试3次
+          const retryCount = 2; // 减少重试次数到2次
           
           for (let retry = 0; retry < retryCount; retry++) {
             try {
@@ -1016,10 +1024,17 @@ export default function InventoryAnalysis() {
                 const products = await response.json();
                 return { sku, products, success: true };
               } else if (response.status === 429) {
-                // 如果遇到频率限制，等待更长时间
-                console.log(`SKU ${sku} 遇到频率限制，等待重试...`);
-                await delay(2000 * (retry + 1));
-                continue;
+                // 频率限制，减少批次大小并增加延迟
+                console.log(`SKU ${sku} 遇到频率限制，调整参数...`);
+                batchSize = Math.max(minBatchSize, batchSize - 2);
+                batchDelay = Math.min(maxDelay, batchDelay * 1.5);
+                consecutiveErrors++;
+                consecutiveSuccesses = 0;
+                
+                if (retry < retryCount - 1) {
+                  await delay(batchDelay * (retry + 1));
+                  continue;
+                }
               } else {
                 console.error(`SKU ${sku} 查询失败，状态码: ${response.status}`);
                 return { sku, products: [], success: false };
@@ -1027,7 +1042,7 @@ export default function InventoryAnalysis() {
             } catch (error) {
               console.error(`SKU ${sku} 查询出错 (重试 ${retry + 1}/${retryCount}):`, error);
               if (retry < retryCount - 1) {
-                await delay(1000 * (retry + 1));
+                await delay(batchDelay * (retry + 1));
                 continue;
               }
               return { sku, products: [], success: false };
@@ -1040,6 +1055,32 @@ export default function InventoryAnalysis() {
         // 等待当前批次完成
         const batchResults = await Promise.all(batchPromises);
         
+        // 分析批次结果并调整参数
+        const successCount = batchResults.filter(r => r.success).length;
+        const errorCount = batchResults.length - successCount;
+        
+        if (errorCount === 0) {
+          // 全部成功，可以增加批次大小
+          consecutiveSuccesses++;
+          consecutiveErrors = 0;
+          
+          if (consecutiveSuccesses >= 2) {
+            batchSize = Math.min(maxBatchSize, batchSize + 1);
+            batchDelay = Math.max(minDelay, batchDelay * 0.9);
+            consecutiveSuccesses = 0;
+          }
+        } else if (errorCount > batchResults.length * 0.3) {
+          // 错误率超过30%，减少批次大小
+          consecutiveErrors++;
+          consecutiveSuccesses = 0;
+          
+          if (consecutiveErrors >= 2) {
+            batchSize = Math.max(minBatchSize, batchSize - 1);
+            batchDelay = Math.min(maxDelay, batchDelay * 1.2);
+            consecutiveErrors = 0;
+          }
+        }
+        
         // 处理当前批次的结果
         batchResults.forEach(result => {
           if (result.success && result.products.length > 0) {
@@ -1047,10 +1088,11 @@ export default function InventoryAnalysis() {
           }
         });
         
-        // 批次间延迟，避免API频率限制
+        // 自适应延迟：根据批次大小和错误率调整
         if (i + batchSize < skus.length) {
-          setProductDetectionProgress(`批次完成，等待1秒后继续...`);
-          await delay(1000);
+          const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchResults.length));
+          setProductDetectionProgress(`批次完成，等待 ${adaptiveDelay}ms 后继续...`);
+          await delay(adaptiveDelay);
         }
       }
 
