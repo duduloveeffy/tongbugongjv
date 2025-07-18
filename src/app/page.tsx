@@ -759,7 +759,7 @@ export default function InventoryAnalysis() {
     
     try {
       // 获取当前筛选的SKU列表
-      const skus = filteredData.map(item => getFieldValue(item, '产品代码'));
+      const skus = filteredData.map(item => getFieldValue(item, '产品代码')).filter(sku => sku && sku.trim());
       
       if (skus.length === 0) {
         toast.error('请先筛选出需要检测的SKU');
@@ -956,7 +956,7 @@ export default function InventoryAnalysis() {
     
     try {
       // 获取当前筛选的SKU列表
-      const skus = filteredData.map(item => getFieldValue(item, '产品代码'));
+      const skus = filteredData.map(item => getFieldValue(item, '产品代码')).filter(sku => sku && sku.trim());
       
       if (skus.length === 0) {
         toast.error('请先筛选出需要检测的SKU');
@@ -984,31 +984,25 @@ export default function InventoryAnalysis() {
         });
       });
 
-      // 优化的产品信息获取 - 自适应并发控制
-      setProductDetectionProgress(`正在查询 ${skus.length} 个SKU（自适应并发）...`);
-      
-      // 自适应并发控制参数
-      let batchSize = 30; // 初始批次大小（从8提升到30）
-      let batchDelay = 100; // 初始延迟（从200ms降低到100ms）
-      const maxBatchSize = 50; // 最大批次大小（从15提升到50）
-      const minBatchSize = 5; // 最小批次大小（从3提升到5）
-      const maxDelay = 1000; // 最大延迟
-      const minDelay = 50; // 最小延迟（从100ms降低到50ms）
+      // 固定参数配置
+      const batchSize = 30; // 固定批次大小
+      const batchDelay = 100; // 固定延迟
+      const retryCount = 3; // 重试次数
       
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       
       const allProducts: any[] = [];
-      let consecutiveErrors = 0; // 连续错误计数
-      let consecutiveSuccesses = 0; // 连续成功计数
       const failedSkus: string[] = []; // 记录失败的SKU
+      let processedCount = 0;
       
+      // 第一轮检测
       for (let i = 0; i < skus.length; i += batchSize) {
         const batch = skus.slice(i, i + batchSize);
-        setProductDetectionProgress(`正在查询第 ${i + 1}-${Math.min(i + batchSize, skus.length)} 个SKU (批次大小: ${batchSize})...`);
         
         // 并发查询当前批次
         const batchPromises = batch.map(async (sku, batchIndex) => {
-          const retryCount = 3; // 增加重试次数到3次
+          const currentIndex = i + batchIndex + 1;
+          setProductDetectionProgress(`正在检测第 ${currentIndex} 个，共 ${skus.length} 个 SKU...`);
           
           for (let retry = 0; retry < retryCount; retry++) {
             try {
@@ -1016,7 +1010,7 @@ export default function InventoryAnalysis() {
                 siteUrl: settings.siteUrl,
                 consumerKey: settings.consumerKey,
                 consumerSecret: settings.consumerSecret,
-                sku: sku
+                sku: sku || ''
               });
               
               const response = await fetch(`/api/wc-products?${params.toString()}`);
@@ -1024,23 +1018,11 @@ export default function InventoryAnalysis() {
               if (response.ok) {
                 const products = await response.json();
                 return { sku, products, success: true };
-              } else if (response.status === 429) {
-                // 频率限制，减少批次大小并增加延迟
-                console.log(`SKU ${sku} 遇到频率限制，调整参数...`);
-                batchSize = Math.max(minBatchSize, batchSize - 5); // 减少更多批次大小
-                batchDelay = Math.min(maxDelay, batchDelay * 1.5);
-                consecutiveErrors++;
-                consecutiveSuccesses = 0;
-                
+              } else {
+                console.error(`SKU ${sku} 查询失败，状态码: ${response.status}`);
                 if (retry < retryCount - 1) {
                   await delay(batchDelay * (retry + 1));
                   continue;
-                }
-              } else {
-                console.error(`SKU ${sku} 查询失败，状态码: ${response.status}`);
-                if (retry === retryCount - 1) {
-                  // 记录最终失败的SKU
-                  failedSkus.push(sku);
                 }
                 return { sku, products: [], success: false };
               }
@@ -1050,8 +1032,6 @@ export default function InventoryAnalysis() {
                 await delay(batchDelay * (retry + 1));
                 continue;
               }
-              // 记录最终失败的SKU
-              failedSkus.push(sku);
               return { sku, products: [], success: false };
             }
           }
@@ -1062,44 +1042,69 @@ export default function InventoryAnalysis() {
         // 等待当前批次完成
         const batchResults = await Promise.all(batchPromises);
         
-        // 分析批次结果并调整参数
-        const successCount = batchResults.filter(r => r.success).length;
-        const errorCount = batchResults.length - successCount;
-        
-        if (errorCount === 0) {
-          // 全部成功，可以增加批次大小
-          consecutiveSuccesses++;
-          consecutiveErrors = 0;
-          
-          if (consecutiveSuccesses >= 2) {
-            batchSize = Math.min(maxBatchSize, batchSize + 2); // 增加更多批次大小
-            batchDelay = Math.max(minDelay, batchDelay * 0.9);
-            consecutiveSuccesses = 0;
-          }
-        } else if (errorCount > batchResults.length * 0.3) {
-          // 错误率超过30%，减少批次大小
-          consecutiveErrors++;
-          consecutiveSuccesses = 0;
-          
-          if (consecutiveErrors >= 2) {
-            batchSize = Math.max(minBatchSize, batchSize - 2);
-            batchDelay = Math.min(maxDelay, batchDelay * 1.2);
-            consecutiveErrors = 0;
-          }
-        }
-        
         // 处理当前批次的结果
         batchResults.forEach(result => {
           if (result.success && result.products.length > 0) {
             allProducts.push(...result.products);
+          } else {
+            failedSkus.push(result.sku);
           }
         });
         
-        // 自适应延迟：根据批次大小和错误率调整
+        processedCount += batch.length;
+        
+        // 批次间延迟
         if (i + batchSize < skus.length) {
-          const adaptiveDelay = Math.max(minDelay, batchDelay * (1 + errorCount / batchResults.length));
-          setProductDetectionProgress(`批次完成，等待 ${adaptiveDelay}ms 后继续...`);
-          await delay(adaptiveDelay);
+          await delay(batchDelay);
+        }
+      }
+      
+      // 如果有失败的SKU，进行重试
+      if (failedSkus.length > 0) {
+        setProductDetectionProgress(`正在重试 ${failedSkus.length} 个失败的SKU...`);
+        console.log(`开始重试失败的SKU:`, failedSkus);
+        
+        const retryResults = [];
+        
+        for (let i = 0; i < failedSkus.length; i++) {
+          const sku = failedSkus[i];
+          setProductDetectionProgress(`正在重试第 ${i + 1} 个失败的SKU，共 ${failedSkus.length} 个...`);
+          
+          for (let retry = 0; retry < retryCount; retry++) {
+            try {
+              const params = new URLSearchParams({
+                siteUrl: settings.siteUrl,
+                consumerKey: settings.consumerKey,
+                consumerSecret: settings.consumerSecret,
+                sku: sku || ''
+              });
+              
+              const response = await fetch(`/api/wc-products?${params.toString()}`);
+              
+              if (response.ok) {
+                const products = await response.json();
+                if (products.length > 0) {
+                  allProducts.push(...products);
+                  console.log(`重试成功: ${sku}`);
+                  break;
+                }
+              }
+              
+              if (retry < retryCount - 1) {
+                await delay(batchDelay * (retry + 1));
+              }
+            } catch (error) {
+              console.error(`重试SKU ${sku} 失败:`, error);
+              if (retry < retryCount - 1) {
+                await delay(batchDelay * (retry + 1));
+              }
+            }
+          }
+          
+          // 重试间隔
+          if (i < failedSkus.length - 1) {
+            await delay(batchDelay);
+          }
         }
       }
 
@@ -1107,9 +1112,12 @@ export default function InventoryAnalysis() {
       
       console.log(`Found ${products.length} products for ${skus.length} SKUs:`, products.map(p => ({ sku: p.sku, status: p.status, stock_status: p.stock_status })));
       
-      // 记录失败统计
-      if (failedSkus.length > 0) {
-        console.log(`Failed SKUs (${failedSkus.length}):`, failedSkus);
+      // 统计最终失败的SKU
+      const foundSkus = new Set(products.map(p => p.sku));
+      const finalFailedSkus = skus.filter(sku => !foundSkus.has(sku));
+      
+      if (finalFailedSkus.length > 0) {
+        console.log(`最终失败的SKU (${finalFailedSkus.length}):`, finalFailedSkus);
       }
       
       // 处理产品数据
@@ -1140,21 +1148,22 @@ export default function InventoryAnalysis() {
       
       const foundCount = products.length;
       const successRate = ((foundCount / skus.length) * 100).toFixed(1);
-      const failedCount = failedSkus.length;
+      const finalFailedCount = finalFailedSkus.length;
       
       // 显示详细的检测结果
-      let resultMessage = `成功检测 ${skus.length} 个SKU，找到 ${foundCount} 个产品 (成功率: ${successRate}%)`;
-      if (failedCount > 0) {
-        resultMessage += `，失败 ${failedCount} 个SKU`;
+      let resultMessage = `检测完成：${skus.length} 个SKU，成功 ${foundCount} 个 (${successRate}%)`;
+      if (finalFailedCount > 0) {
+        resultMessage += `，失败 ${finalFailedCount} 个`;
       }
       
       toast.success(resultMessage);
       
-      // 如果有失败的SKU，在控制台显示详细信息
-      if (failedCount > 0) {
-        console.warn(`检测失败的SKU列表:`, failedSkus);
-        console.warn(`失败率: ${((failedCount / skus.length) * 100).toFixed(1)}%`);
+      // 如果有最终失败的SKU，在控制台显示详细信息
+      if (finalFailedCount > 0) {
+        console.warn(`最终失败的SKU列表:`, finalFailedSkus);
+        console.warn(`失败率: ${((finalFailedCount / skus.length) * 100).toFixed(1)}%`);
       }
+      
     } catch (error) {
       console.error('产品检测失败:', error);
       toast.error('产品检测失败，请检查API配置和网络连接');
