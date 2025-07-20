@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { env } from '@/env';
 
 interface WooCommerceSettings {
   siteUrl: string;
@@ -84,6 +85,14 @@ interface WooCommerceStore {
     endDate?: string;
   }) => Promise<void>;
   
+  fetchSalesAnalysis: (params: {
+    skus: string[];
+    statuses?: string[];
+    startDate?: string;
+    endDate?: string;
+    onProgress?: (progress: { current: number; total: number; message: string }) => void;
+  }) => Promise<Record<string, any>>;
+  
   analyzeSales: () => void;
   
   // 在途订单相关功能
@@ -96,9 +105,9 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
     (set, get) => ({
       // Settings
       settings: {
-        siteUrl: 'https://jnrpuff.fr',
-        consumerKey: 'ck_7ca4e98dd6acc394dbcdc6e2917b1a1b3f757dea',
-        consumerSecret: 'cs_93c59b8daf2296c42ca3ae23f746e6a759d41f00',
+        siteUrl: env.NEXT_PUBLIC_WOOCOMMERCE_SITE_URL || '',
+        consumerKey: env.NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_KEY || '',
+        consumerSecret: env.NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_SECRET || '',
       },
       setSettings: (settings) => set({ settings }),
       
@@ -136,7 +145,6 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
           queryParams.append('siteUrl', settings.siteUrl);
           queryParams.append('consumerKey', settings.consumerKey);
           queryParams.append('consumerSecret', settings.consumerSecret);
-          queryParams.append('skus', ''); // Empty for general order fetching
           queryParams.append('statuses', status.join(',') || 'completed,processing,pending');
           
           if (startDate) {
@@ -151,7 +159,18 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
           
           if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(`API Error: ${response.status} ${errorData.error || response.statusText}`);
+            const errorMessage = errorData.error || response.statusText;
+            
+            // Provide user-friendly error messages
+            if (response.status === 504 || errorMessage.includes('timeout')) {
+              throw new Error('连接超时：无法连接到WooCommerce网站，请检查网站是否在线或稍后重试');
+            } else if (response.status === 401) {
+              throw new Error('认证失败：请检查API密钥是否正确');
+            } else if (response.status === 403) {
+              throw new Error('权限不足：请确保API密钥具有读取订单的权限');
+            } else {
+              throw new Error(`API错误: ${errorMessage}`);
+            }
           }
           
           const orders = await response.json();
@@ -163,6 +182,95 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
         } catch (error) {
           console.error('获取订单失败:', error);
           set({ isLoadingOrders: false });
+          throw error;
+        }
+      },
+
+      // 优化后的销量检测方法
+      fetchSalesAnalysis: async (params: { skus: string[], statuses?: string[], startDate?: string, endDate?: string, onProgress?: (progress: { current: number, total: number, message: string }) => void }) => {
+        const { settings } = get();
+        const { skus, statuses = ['completed', 'processing'], startDate, endDate, onProgress } = params;
+        
+        if (!settings.consumerKey || !settings.consumerSecret || !settings.siteUrl) {
+          throw new Error('WooCommerce API credentials not configured');
+        }
+
+        if (!skus || skus.length === 0) {
+          throw new Error('No SKUs provided');
+        }
+
+        try {
+          // 分批处理SKU，避免URL过长和内存问题
+          const batchSize = 50;
+          const batches = [];
+          for (let i = 0; i < skus.length; i += batchSize) {
+            batches.push(skus.slice(i, i + batchSize));
+          }
+
+          let allSalesData: Record<string, any> = {};
+          let totalProcessed = 0;
+
+          for (let i = 0; i < batches.length; i++) {
+            const batch = batches[i];
+            if (!batch) continue;
+            
+            if (onProgress) {
+              onProgress({
+                current: totalProcessed,
+                total: skus.length,
+                message: `正在处理批次 ${i + 1}/${batches.length}，包含 ${batch.length} 个SKU...`
+              });
+            }
+
+            const response = await fetch('/api/wc-sales-analysis', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                siteUrl: settings.siteUrl,
+                consumerKey: settings.consumerKey,
+                consumerSecret: settings.consumerSecret,
+                skus: batch,
+                statuses: statuses.join(','),
+                dateStart: startDate ? `${startDate}T00:00:00` : undefined,
+                dateEnd: endDate ? `${endDate}T23:59:59` : undefined,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              throw new Error(`API Error: ${response.status} ${errorData.error || response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            if (result.success) {
+              // 合并批次结果
+              Object.assign(allSalesData, result.data);
+              totalProcessed += batch.length;
+              
+              if (onProgress) {
+                onProgress({
+                  current: totalProcessed,
+                  total: skus.length,
+                  message: `已完成 ${totalProcessed}/${skus.length} 个SKU的销量分析`
+                });
+              }
+            } else {
+              throw new Error(result.error || 'Sales analysis failed');
+            }
+
+            // 添加延迟避免API限流
+            if (i < batches.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          }
+
+          return allSalesData;
+
+        } catch (error: any) {
+          console.error('Sales analysis failed:', error);
           throw error;
         }
       },

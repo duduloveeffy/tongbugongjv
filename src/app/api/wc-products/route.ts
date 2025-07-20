@@ -5,7 +5,7 @@ export async function GET(request: NextRequest) {
   const siteUrl = searchParams.get('siteUrl');
   const consumerKey = searchParams.get('consumerKey');
   const consumerSecret = searchParams.get('consumerSecret');
-  const sku = searchParams.get('sku');
+  const sku = searchParams.get('skus') || searchParams.get('sku'); // Support both 'skus' and 'sku' parameters
 
   if (!siteUrl || !consumerKey || !consumerSecret || !sku) {
     return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
