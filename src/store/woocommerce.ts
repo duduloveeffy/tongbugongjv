@@ -1,6 +1,6 @@
+import { env } from '@/env';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { env } from '@/env';
 
 interface WooCommerceSettings {
   siteUrl: string;
@@ -39,6 +39,16 @@ interface TransitOrderItem {
   数量: number;
 }
 
+// 文件数据结构
+interface TransitFile {
+  id: string;
+  fileName: string;
+  uploadTime: string;
+  items: TransitOrderItem[];
+  skuCount: number;
+  totalQuantity: number;
+}
+
 interface SalesAnalysis {
   totalOrders: number;
   totalRevenue: number;
@@ -68,7 +78,11 @@ interface WooCommerceStore {
   
   // 在途订单数据
   transitOrders: TransitOrderItem[];
+  transitFiles: TransitFile[];
   setTransitOrders: (transitOrders: TransitOrderItem[]) => void;
+  addTransitOrders: (transitOrders: TransitOrderItem[]) => void;
+  addTransitFile: (fileName: string, items: TransitOrderItem[]) => void;
+  removeTransitFile: (fileId: string) => void;
   
   // Sales analysis
   salesAnalysis: SalesAnalysis | null;
@@ -117,7 +131,100 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
       
       // 在途订单数据
       transitOrders: [],
+      transitFiles: [],
       setTransitOrders: (transitOrders) => set({ transitOrders }),
+      addTransitOrders: (newTransitOrders) => {
+        const { transitOrders } = get();
+        
+        // 创建一个Map来聚合SKU数量
+        const aggregatedMap = new Map<string, TransitOrderItem>();
+        
+        // 先添加现有的在途订单到Map
+        transitOrders.forEach(item => {
+          const existing = aggregatedMap.get(item.产品型号);
+          if (existing) {
+            existing.数量 += item.数量;
+          } else {
+            aggregatedMap.set(item.产品型号, { ...item });
+          }
+        });
+        
+        // 添加新的在途订单到Map，自动聚合相同SKU
+        newTransitOrders.forEach(item => {
+          const existing = aggregatedMap.get(item.产品型号);
+          if (existing) {
+            existing.数量 += item.数量;
+            // 如果产品英文名称为空，尝试使用新的名称
+            if (!existing.产品英文名称 && item.产品英文名称) {
+              existing.产品英文名称 = item.产品英文名称;
+            }
+          } else {
+            aggregatedMap.set(item.产品型号, { ...item });
+          }
+        });
+        
+        // 将Map转换回数组
+        const aggregatedOrders = Array.from(aggregatedMap.values());
+        
+        set({ transitOrders: aggregatedOrders });
+      },
+      
+      addTransitFile: (fileName: string, items: TransitOrderItem[]) => {
+        const { transitFiles } = get();
+        
+        // 计算文件统计信息
+        const skuSet = new Set(items.map(item => item.产品型号));
+        const totalQuantity = items.reduce((sum, item) => sum + item.数量, 0);
+        
+        // 创建新文件记录
+        const newFile: TransitFile = {
+          id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          fileName,
+          uploadTime: new Date().toISOString(),
+          items,
+          skuCount: skuSet.size,
+          totalQuantity,
+        };
+        
+        // 添加文件记录
+        set({ transitFiles: [...transitFiles, newFile] });
+        
+        // 同时更新总的在途订单
+        get().addTransitOrders(items);
+      },
+      
+      removeTransitFile: (fileId: string) => {
+        const { transitFiles } = get();
+        const fileToRemove = transitFiles.find(f => f.id === fileId);
+        
+        if (!fileToRemove) return;
+        
+        // 移除文件
+        const newFiles = transitFiles.filter(f => f.id !== fileId);
+        set({ transitFiles: newFiles });
+        
+        // 重新计算所有在途订单
+        const allItems: TransitOrderItem[] = [];
+        newFiles.forEach(file => {
+          allItems.push(...file.items);
+        });
+        
+        // 聚合所有订单
+        const aggregatedMap = new Map<string, TransitOrderItem>();
+        allItems.forEach(item => {
+          const existing = aggregatedMap.get(item.产品型号);
+          if (existing) {
+            existing.数量 += item.数量;
+            if (!existing.产品英文名称 && item.产品英文名称) {
+              existing.产品英文名称 = item.产品英文名称;
+            }
+          } else {
+            aggregatedMap.set(item.产品型号, { ...item });
+          }
+        });
+        
+        set({ transitOrders: Array.from(aggregatedMap.values()) });
+      },
       
       // Sales analysis
       salesAnalysis: null,
@@ -207,7 +314,7 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
             batches.push(skus.slice(i, i + batchSize));
           }
 
-          let allSalesData: Record<string, any> = {};
+          const allSalesData: Record<string, any> = {};
           let totalProcessed = 0;
 
           for (let i = 0; i < batches.length; i++) {
@@ -284,7 +391,7 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
         }
         
         const totalOrders = orders.length;
-        const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total || '0'), 0);
+        const totalRevenue = orders.reduce((sum, order) => sum + Number.parseFloat(order.total || '0'), 0);
         const averageOrderValue = totalRevenue / totalOrders;
         
         // Count orders by status
@@ -302,7 +409,7 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
             if (key) {
               const existing = productStats.get(key) || { name: item.name || 'Unknown', quantity: 0, revenue: 0 };
               existing.quantity += item.quantity || 0;
-              existing.revenue += parseFloat(item.total || '0');
+              existing.revenue += Number.parseFloat(item.total || '0');
               productStats.set(key, existing);
             }
           });
@@ -323,7 +430,7 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
           if (!date) return; // 额外的安全检查
           const existing = dailyStats.get(date) || { orders: 0, revenue: 0 };
           existing.orders += 1;
-          existing.revenue += parseFloat(order.total || '0');
+          existing.revenue += Number.parseFloat(order.total || '0');
           dailyStats.set(date, existing);
         });
         
@@ -352,12 +459,16 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
       },
       
       clearTransitOrders: () => {
-        set({ transitOrders: [] });
+        set({ transitOrders: [], transitFiles: [] });
       },
     }),
     {
       name: 'woocommerce-store',
-      partialize: (state) => ({ settings: state.settings, transitOrders: state.transitOrders }),
+      partialize: (state) => ({ 
+        settings: state.settings, 
+        transitOrders: state.transitOrders,
+        transitFiles: state.transitFiles,
+      }),
     }
   )
 ); 

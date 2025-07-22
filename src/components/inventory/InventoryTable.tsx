@@ -2,11 +2,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { 
+  type InventoryItem, 
   calculateNetStock, 
   getStockStatusColor, 
   getSyncButtonColor, 
-  getSyncButtonText, 
-  type InventoryItem 
+  getSyncButtonText 
 } from '@/lib/inventory-utils';
 
 interface InventoryTableProps {
@@ -30,20 +30,20 @@ export function InventoryTable({
 }: InventoryTableProps) {
   if (data.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
+      <div className="py-8 text-center text-muted-foreground">
         暂无数据，请先上传库存文件
       </div>
     );
   }
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="overflow-hidden rounded-lg border">
       <div className="relative max-h-[600px] overflow-auto">
         <table className="w-full caption-bottom text-sm">
-          <thead className="sticky top-0 bg-background z-10 shadow-sm border-b">
+          <thead className="sticky top-0 z-20 border-b bg-background shadow-sm">
             <tr className="border-b transition-colors hover:bg-muted/50">
               {isProductDetectionEnabled && (
-                <th className="w-12 bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">
+                <th className="sticky left-0 z-30 h-10 w-12 whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   <Checkbox
                     checked={data.length > 0 && data.every(item => selectedSkusForSync.has(item.产品代码))}
                     onCheckedChange={(checked) => {
@@ -54,29 +54,33 @@ export function InventoryTable({
                   />
                 </th>
               )}
-              <th className="min-w-[120px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">产品代码</th>
-              <th className="min-w-[200px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">产品名称</th>
-              <th className="min-w-[180px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">产品英文名称</th>
-              <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">仓库</th>
-              <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">可售库存</th>
-              <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">净可售库存</th>
-              <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">在途数量</th>
-              <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">在途库存</th>
-              <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">一级品类</th>
+              <th className={`sticky ${isProductDetectionEnabled ? 'left-12' : 'left-0'} z-30 h-10 min-w-[120px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
+                产品代码
+              </th>
+              <th className={`sticky ${isProductDetectionEnabled ? 'left-[168px]' : 'left-[120px]'} z-30 h-10 min-w-[200px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
+                产品名称
+              </th>
+              <th className="h-10 min-w-[180px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">产品英文名称</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">仓库</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">可售库存</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">净可售库存</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">在途数量</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">在途库存</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">一级品类</th>
               {isSalesDetectionEnabled && (
                 <>
-                  <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">订单数</th>
-                  <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">销售数量</th>
-                  <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">30天订单数</th>
-                  <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">30天销售数量</th>
-                  <th className="min-w-[120px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">预测库存（在途）</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">订单数</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">销售数量</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">30天订单数</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">30天销售数量</th>
+                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">预测库存（在途）</th>
                 </>
               )}
               {isProductDetectionEnabled && (
                 <>
-                  <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">上架状态</th>
-                  <th className="min-w-[100px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">库存状态</th>
-                  <th className="min-w-[120px] bg-background text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap">同步操作</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">上架状态</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">库存状态</th>
+                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">同步操作</th>
                 </>
               )}
             </tr>
@@ -91,9 +95,9 @@ export function InventoryTable({
               const predictedTransitQuantity = transitStock - sales30d;
               
               return (
-                <tr key={`${item.产品代码}-${index}`} className="border-b transition-colors hover:bg-muted/50">
+                <tr key={`${item.产品代码}-${index}`} className="group border-b transition-colors hover:bg-muted/50">
                   {isProductDetectionEnabled && (
-                    <td className="p-2 align-middle whitespace-nowrap">
+                    <td className="sticky left-0 z-10 whitespace-nowrap bg-background p-2 align-middle shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] group-hover:bg-muted/50">
                       <Checkbox
                         checked={selectedSkusForSync.has(item.产品代码)}
                         onCheckedChange={(checked) => {
@@ -102,47 +106,51 @@ export function InventoryTable({
                       />
                     </td>
                   )}
-                  <td className="p-2 align-middle whitespace-nowrap font-mono">{item.产品代码}</td>
-                  <td className="p-2 align-middle whitespace-nowrap">{item.产品名称}</td>
-                  <td className="p-2 align-middle whitespace-nowrap">{item.产品英文名称}</td>
-                  <td className="p-2 align-middle whitespace-nowrap">{item.仓库}</td>
-                  <td className="p-2 align-middle whitespace-nowrap">{item.可售库存}</td>
-                  <td className={`p-2 align-middle whitespace-nowrap ${getStockStatusColor(netStock)}`}>
+                  <td className={`sticky ${isProductDetectionEnabled ? 'left-12' : 'left-0'} z-10 whitespace-nowrap bg-background p-2 align-middle font-mono shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] group-hover:bg-muted/50`}>
+                    {item.产品代码}
+                  </td>
+                  <td className={`sticky ${isProductDetectionEnabled ? 'left-[168px]' : 'left-[120px]'} z-10 whitespace-nowrap bg-background p-2 align-middle shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] group-hover:bg-muted/50`}>
+                    {item.产品名称}
+                  </td>
+                  <td className="whitespace-nowrap p-2 align-middle">{item.产品英文名称}</td>
+                  <td className="whitespace-nowrap p-2 align-middle">{item.仓库}</td>
+                  <td className="whitespace-nowrap p-2 align-middle">{item.可售库存}</td>
+                  <td className={`whitespace-nowrap p-2 align-middle ${getStockStatusColor(netStock)}`}>
                     {netStock}
                   </td>
-                  <td className="p-2 align-middle whitespace-nowrap">{item.在途数量 || 0}</td>
-                  <td className="p-2 align-middle whitespace-nowrap">{item.在途库存 || netStock}</td>
-                  <td className="p-2 align-middle whitespace-nowrap">{item.一级品类}</td>
+                  <td className="whitespace-nowrap p-2 align-middle">{item.在途数量 || 0}</td>
+                  <td className="whitespace-nowrap p-2 align-middle">{item.在途库存 || netStock}</td>
+                  <td className="whitespace-nowrap p-2 align-middle">{item.一级品类}</td>
                   {isSalesDetectionEnabled && (
                     <>
-                      <td className="p-2 align-middle whitespace-nowrap">
+                      <td className="whitespace-nowrap p-2 align-middle">
                         <Badge variant={item.salesData?.orderCount ? 'default' : 'secondary'}>
                           {item.salesData?.orderCount || 0}
                         </Badge>
                       </td>
-                      <td className="p-2 align-middle whitespace-nowrap">
+                      <td className="whitespace-nowrap p-2 align-middle">
                         <Badge variant={item.salesData?.salesQuantity ? 'default' : 'secondary'}>
                           {item.salesData?.salesQuantity || 0}
                         </Badge>
                       </td>
-                      <td className="p-2 align-middle whitespace-nowrap">
+                      <td className="whitespace-nowrap p-2 align-middle">
                         <Badge variant={item.salesData?.orderCount30d ? 'default' : 'secondary'}>
                           {item.salesData?.orderCount30d || 0}
                         </Badge>
                       </td>
-                      <td className="p-2 align-middle whitespace-nowrap">
+                      <td className="whitespace-nowrap p-2 align-middle">
                         <Badge variant={item.salesData?.salesQuantity30d ? 'default' : 'secondary'}>
                           {item.salesData?.salesQuantity30d || 0}
                         </Badge>
                       </td>
-                      <td className={`p-2 align-middle whitespace-nowrap ${predictedTransitQuantity < 0 ? 'text-red-600 font-medium' : ''}`}>
+                      <td className={`whitespace-nowrap p-2 align-middle ${predictedTransitQuantity < 0 ? "font-medium text-red-600" : ''}`}>
                         {predictedTransitQuantity}
                       </td>
                     </>
                   )}
                   {isProductDetectionEnabled && (
                     <>
-                      <td className="p-2 align-middle whitespace-nowrap">
+                      <td className="whitespace-nowrap p-2 align-middle">
                         {item.productData ? (
                           <Badge variant={isOnline ? "default" : "secondary"}>
                             {isOnline ? "已上架" : "未上架"}
@@ -151,20 +159,20 @@ export function InventoryTable({
                           <Badge variant="outline">未检测</Badge>
                         )}
                       </td>
-                      <td className="p-2 align-middle whitespace-nowrap">
+                      <td className="whitespace-nowrap p-2 align-middle">
                         {item.productData?.stockStatus && (
                           <Badge variant="outline">
                             {item.productData.stockStatus}
                           </Badge>
                         )}
                       </td>
-                      <td className="p-2 align-middle whitespace-nowrap">
+                      <td className="whitespace-nowrap p-2 align-middle">
                         <Button
                           size="sm"
                           disabled={isSyncing || !item.productData}
                           variant={getSyncButtonColor(isOnline, netStock) as any}
                           onClick={() => {
-                            const shouldBeInStock = !isOnline || (isOnline && netStock <= 0 ? false : true);
+                            const shouldBeInStock = !isOnline || (!(isOnline && netStock <= 0 ));
                             onSyncSku(item.产品代码, shouldBeInStock);
                           }}
                         >

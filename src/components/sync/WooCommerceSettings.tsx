@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Settings, Save, Eye, EyeOff } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Eye, EyeOff, Save, Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 interface WooCommerceSettings {
@@ -93,7 +93,7 @@ export function WooCommerceSettings({ settings, onSave }: WooCommerceSettingsPro
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
+                  className="absolute top-0 right-0 h-full px-3"
                   onClick={() => setShowSecrets(!showSecrets)}
                 >
                   {showSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -115,7 +115,7 @@ export function WooCommerceSettings({ settings, onSave }: WooCommerceSettingsPro
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
+                  className="absolute top-0 right-0 h-full px-3"
                   onClick={() => setShowSecrets(!showSecrets)}
                 >
                   {showSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -123,8 +123,8 @@ export function WooCommerceSettings({ settings, onSave }: WooCommerceSettingsPro
               </div>
             </div>
 
-            <div className="text-sm text-muted-foreground">
-              <p className="font-medium mb-2">配置说明：</p>
+            <div className="text-muted-foreground text-sm">
+              <p className="mb-2 font-medium">配置说明：</p>
               <ul className="space-y-1 text-xs">
                 <li>• 在WooCommerce后台生成API密钥：WooCommerce → 设置 → 高级 → REST API</li>
                 <li>• 权限设置为"读取/写入"</li>

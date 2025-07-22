@@ -1,25 +1,43 @@
-import { useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Upload, Truck } from 'lucide-react';
+import { type InventoryItem, type TransitOrderItem, parseCSVFile, parseExcelFile, parseExcelPreview } from '@/lib/inventory-utils';
+import { Truck, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { parseCSVFile, parseExcelFile, type InventoryItem, type TransitOrderItem } from '@/lib/inventory-utils';
+import { ColumnMappingDialog } from './ColumnMappingDialog';
 
 interface InventoryUploadProps {
   onInventoryDataLoad: (data: InventoryItem[], headers: string[]) => void;
   onTransitDataLoad: (data: TransitOrderItem[]) => void;
+  onTransitDataAdd: (data: TransitOrderItem[]) => void;
+  onTransitFileAdd: (fileName: string, items: TransitOrderItem[]) => void;
+  transitOrderCount: number;
   isLoading: boolean;
 }
 
 export function InventoryUpload({ 
   onInventoryDataLoad, 
-  onTransitDataLoad, 
+  onTransitDataLoad,
+  onTransitDataAdd,
+  onTransitFileAdd,
+  transitOrderCount,
   isLoading 
 }: InventoryUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transitFileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 列映射对话框状态
+  const [columnMappingOpen, setColumnMappingOpen] = useState(false);
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [previewData, setPreviewData] = useState<{
+    headers: string[];
+    rows: any[][];
+    fileName: string;
+  } | null>(null);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -55,32 +73,130 @@ export function InventoryUpload({
     }
   };
 
-  const handleTransitFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith('.xlsx') && !file.name.toLowerCase().endsWith('.xls')) {
-      toast.error('请选择Excel文件');
-      return;
-    }
-
+  const processFileWithMapping = async (
+    file: File, 
+    columnMapping?: { skuColumn: number; quantityColumn: number; nameColumn?: number },
+    isFirstFile = false
+  ) => {
     try {
-      const transitOrders = await parseExcelFile(file);
+      const transitOrders = await parseExcelFile(file, columnMapping);
       
       if (transitOrders.length === 0) {
-        toast.error('Excel文件中没有找到有效的在途订单数据');
-        return;
+        toast.warning(`文件 ${file.name} 中没有找到有效的在途订单数据`);
+        return { processed: 0, skus: new Set<string>() };
       }
 
-      toast.success(`成功导入 ${transitOrders.length} 条在途订单数据`);
-      onTransitDataLoad(transitOrders);
+      // 统计唯一SKU
+      const skus = new Set<string>();
+      transitOrders.forEach(order => {
+        skus.add(order.产品型号);
+      });
+
+      // 使用新的文件管理功能
+      onTransitFileAdd(file.name, transitOrders);
+
+      toast.success(`成功导入文件 ${file.name}: ${transitOrders.length} 条记录，${skus.size} 个SKU`);
+      return { processed: transitOrders.length, skus };
     } catch (error) {
-      console.error('在途订单文件处理失败:', error);
-      toast.error(error instanceof Error ? error.message : '在途订单文件处理失败');
+      // 检查是否是自动识别失败
+      if (error instanceof Error && error.message.includes('无法自动识别列')) {
+        // 需要手动映射
+        return null;
+      }
+      console.error(`处理文件 ${file.name} 失败:`, error);
+      toast.error(`文件 ${file.name} 处理失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      return { processed: 0, skus: new Set<string>() };
     }
   };
 
+  const handleTransitFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const validFiles: File[] = [];
+    
+    // 筛选有效的Excel文件
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file) continue;
+      
+      if (!file.name.toLowerCase().endsWith('.xlsx') && !file.name.toLowerCase().endsWith('.xls')) {
+        toast.error(`文件 ${file.name} 不是Excel文件，已跳过`);
+        continue;
+      }
+      
+      validFiles.push(file);
+    }
+
+    if (validFiles.length === 0) {
+      toast.error('没有有效的Excel文件');
+      return;
+    }
+
+    setPendingFiles(validFiles);
+    setCurrentFileIndex(0);
+    
+    // 处理第一个文件
+    await processNextFile(validFiles, 0, transitOrderCount === 0);
+    
+    // 清空文件选择
+    if (transitFileInputRef.current) {
+      transitFileInputRef.current.value = '';
+    }
+  };
+
+  const processNextFile = async (files: File[], index: number, isFirstUpload: boolean) => {
+    if (index >= files.length) {
+      // 所有文件处理完成
+      const totalProcessed = files.length;
+      toast.success(`所有文件处理完成，共处理 ${totalProcessed} 个文件`);
+      setPendingFiles([]);
+      return;
+    }
+
+    const file = files[index];
+    if (!file) return;
+
+    const result = await processFileWithMapping(file, undefined, isFirstUpload && index === 0);
+    
+    if (result === null) {
+      // 需要手动映射
+      try {
+        const preview = await parseExcelPreview(file);
+        setCurrentFile(file);
+        setCurrentFileIndex(index);
+        setPreviewData(preview);
+        setColumnMappingOpen(true);
+      } catch (error) {
+        toast.error(`无法预览文件 ${file.name}`);
+        // 继续处理下一个文件
+        await processNextFile(files, index + 1, isFirstUpload);
+      }
+    } else {
+      // 自动处理成功，继续下一个文件
+      await processNextFile(files, index + 1, isFirstUpload);
+    }
+  };
+
+  const handleColumnMappingConfirm = async (mapping: { skuColumn: number; quantityColumn: number; nameColumn?: number }) => {
+    setColumnMappingOpen(false);
+    
+    if (!currentFile) return;
+    
+    const isFirstUpload = transitOrderCount === 0;
+    const result = await processFileWithMapping(currentFile, mapping, isFirstUpload && currentFileIndex === 0);
+    
+    if (result) {
+      // 继续处理下一个文件
+      await processNextFile(pendingFiles, currentFileIndex + 1, isFirstUpload);
+    }
+    
+    setCurrentFile(null);
+    setPreviewData(null);
+  };
+
   return (
+    <>
     <div className="grid gap-6 md:grid-cols-2">
       <Card>
         <CardHeader>
@@ -122,16 +238,22 @@ export function InventoryUpload({
             在途订单导入
           </CardTitle>
           <CardDescription>
-            上传Excel格式的在途订单数据文件
+            上传Excel格式的在途订单数据文件（支持多文件选择，自动聚合相同SKU）
+            {transitOrderCount > 0 && (
+              <div className="mt-1 text-primary text-sm">
+                当前已导入：{transitOrderCount} 个SKU的在途数据
+              </div>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label htmlFor="transit-file">选择在途订单文件</Label>
+            <Label htmlFor="transit-file">选择在途订单文件（可多选）</Label>
             <Input
               id="transit-file"
               type="file"
               accept=".xlsx,.xls"
+              multiple
               ref={transitFileInputRef}
               onChange={handleTransitFileUpload}
               disabled={isLoading}
@@ -144,10 +266,23 @@ export function InventoryUpload({
             variant="outline"
           >
             <Truck className="mr-2 h-4 w-4" />
-            选择Excel文件
+            选择Excel文件（可多选）
           </Button>
         </CardContent>
       </Card>
     </div>
+
+    {/* 列映射对话框 */}
+    {previewData && (
+      <ColumnMappingDialog
+        open={columnMappingOpen}
+        onOpenChange={setColumnMappingOpen}
+        fileName={previewData.fileName}
+        headers={previewData.headers}
+        previewRows={previewData.rows}
+        onConfirm={handleColumnMappingConfirm}
+      />
+    )}
+    </>
   );
 }

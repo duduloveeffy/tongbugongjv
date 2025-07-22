@@ -1,27 +1,27 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useWooCommerceStore } from '@/store/woocommerce';
 import { useInventoryStore } from '@/store/inventory';
-import { Layers, TrendingUp, Settings } from 'lucide-react';
+import { useWooCommerceStore } from '@/store/woocommerce';
+import { Layers, Settings, TrendingUp } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 
-// Components
-import { InventoryUpload } from '@/components/inventory/InventoryUpload';
 import { InventoryFilters } from '@/components/inventory/InventoryFilters';
 import { InventoryTable } from '@/components/inventory/InventoryTable';
-import { SalesDetectionControls } from '@/components/sales/SalesDetectionControls';
+// Components
+import { InventoryUpload } from '@/components/inventory/InventoryUpload';
+import { TransitFilesList } from '@/components/inventory/TransitFilesList';
 import { SalesAnalysisDisplay } from '@/components/sales/SalesAnalysisDisplay';
+import { SalesDetectionControls } from '@/components/sales/SalesDetectionControls';
 import { ProductSyncControls } from '@/components/sync/ProductSyncControls';
 import { WooCommerceSettings } from '@/components/sync/WooCommerceSettings';
 
 // Utils
 import { 
-  mergeWarehouseData, 
+  calculateNetStock,
   filterInventoryData, 
-  type InventoryItem,
-  calculateNetStock
+  mergeWarehouseData 
 } from '@/lib/inventory-utils';
 import { toast } from 'sonner';
 
@@ -74,7 +74,11 @@ export default function InventoryAnalysis() {
     salesAnalysis,
     isLoadingOrders: wooLoading,
     transitOrders,
+    transitFiles,
     setTransitOrders,
+    addTransitOrders,
+    addTransitFile,
+    removeTransitFile,
     getTransitQuantityBySku,
     clearTransitOrders,
     fetchOrders,
@@ -251,7 +255,6 @@ export default function InventoryAnalysis() {
                 batchDelay = Math.min(maxDelay, batchDelay * 1.5);
                 batchSize = Math.max(minBatchSize, batchSize - 1);
                 await new Promise(resolve => setTimeout(resolve, batchDelay * (retry + 1)));
-                continue;
               } else {
                 if (retry === retryCount - 1) {
                   return { sku, products: [], success: false, error: `HTTP ${response.status}` };
@@ -333,7 +336,7 @@ export default function InventoryAnalysis() {
       
       if (failedSkus.length > 0) {
         resultMessage += `，失败 ${failedSkus.length} 个SKU`;
-        console.warn(`检测失败的SKU列表:`, failedSkus);
+        console.warn("检测失败的SKU列表:", failedSkus);
         console.warn(`失败率: ${(failedSkus.length / skus.length * 100).toFixed(1)}%`);
       }
 
@@ -430,10 +433,10 @@ export default function InventoryAnalysis() {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="container mx-auto space-y-6 py-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">ERP库存分析系统</h1>
+          <h1 className="font-bold text-3xl tracking-tight">ERP库存分析系统</h1>
           <p className="text-muted-foreground">
             库存分析、销量检测与WooCommerce库存同步
           </p>
@@ -466,7 +469,15 @@ export default function InventoryAnalysis() {
               setHeaders(headers);
             }}
             onTransitDataLoad={setTransitOrders}
+            onTransitDataAdd={addTransitOrders}
+            onTransitFileAdd={addTransitFile}
+            transitOrderCount={transitOrders.length}
             isLoading={isLoading}
+          />
+
+          <TransitFilesList 
+            files={transitFiles}
+            onRemoveFile={removeTransitFile}
           />
 
           <InventoryFilters

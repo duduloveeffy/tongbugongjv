@@ -1,6 +1,6 @@
+import type { InventoryItem } from '@/lib/inventory-utils';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { type InventoryItem } from '@/lib/inventory-utils';
 
 interface InventoryStore {
   // 库存数据

@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { TrendingUp, Calendar } from 'lucide-react';
+import type { InventoryItem } from '@/lib/inventory-utils';
+import { Calendar, TrendingUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { type InventoryItem } from '@/lib/inventory-utils';
 
 interface SalesDetectionControlsProps {
   isEnabled: boolean;
@@ -123,7 +123,7 @@ export function SalesDetectionControls({
 
             <div>
               <Label>订单状态筛选</Label>
-              <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 {orderStatusOptions.map((option) => (
                   <div key={option.value} className="flex items-center space-x-2">
                     <Checkbox
@@ -166,7 +166,7 @@ export function SalesDetectionControls({
             </Button>
 
             {isLoading && progress && (
-              <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
+              <div className="rounded bg-muted p-3 text-muted-foreground text-sm">
                 {progress}
               </div>
             )}

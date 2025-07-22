@@ -1,11 +1,11 @@
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
-import { Search, Filter, Download, Trash2, TrendingUp } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { exportToExcel, type InventoryItem } from '@/lib/inventory-utils';
+import { Switch } from '@/components/ui/switch';
+import { type InventoryItem, exportToExcel } from '@/lib/inventory-utils';
+import { Download, Filter, Search, Trash2, TrendingUp } from 'lucide-react';
 
 interface InventoryFiltersProps {
   skuFilters: string;
@@ -109,7 +109,7 @@ export function InventoryFilters({
           <Label htmlFor="merge-mode">合并相同SKU的多仓库数据</Label>
         </div>
         
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
           <Button 
             onClick={handleExport}
             disabled={filteredData.length === 0 || isLoading}
@@ -140,19 +140,19 @@ export function InventoryFilters({
         </div>
         
         {isSalesLoading && salesProgress && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-center gap-2 text-blue-700 mb-3">
+          <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div className="mb-3 flex items-center gap-2 text-blue-700">
               <TrendingUp className="h-4 w-4 animate-pulse" />
-              <span className="text-sm font-medium">{salesProgress}</span>
+              <span className="font-medium text-sm">{salesProgress}</span>
             </div>
             {/* 解析进度百分比 */}
             {(() => {
               const percentageMatch = salesProgress.match(/\((\d+)%\)/);
-              const percentage = percentageMatch && percentageMatch[1] ? parseInt(percentageMatch[1]) : 0;
+              const percentage = percentageMatch && percentageMatch[1] ? Number.parseInt(percentageMatch[1]) : 0;
               return percentage > 0 ? (
                 <div className="space-y-2">
                   <Progress value={percentage} className="h-2" />
-                  <div className="text-xs text-blue-600 text-right">{percentage}%</div>
+                  <div className="text-right text-blue-600 text-xs">{percentage}%</div>
                 </div>
               ) : null;
             })()}

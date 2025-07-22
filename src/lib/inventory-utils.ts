@@ -1,6 +1,6 @@
-import { toast } from 'sonner';
-import Papa from 'papaparse';
 import iconv from 'iconv-lite';
+import Papa from 'papaparse';
+import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
 export interface InventoryItem {
@@ -71,7 +71,7 @@ export interface TransitOrderItem {
 
 // 计算净可售库存
 export const calculateNetStock = (item: InventoryItem): number => {
-  const netStock = Number(item['可售库存减去缺货占用库存']) || 0;
+  const netStock = Number(item.可售库存减去缺货占用库存) || 0;
   return netStock;
 };
 
@@ -240,8 +240,53 @@ export const parseCSVFile = (file: File): Promise<{ data: any[], headers: string
   });
 };
 
-// 解析Excel文件
-export const parseExcelFile = (file: File): Promise<TransitOrderItem[]> => {
+// 解析Excel文件的预览数据
+export const parseExcelPreview = (file: File): Promise<{ headers: string[], rows: any[][], fileName: string }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        
+        if (!firstSheetName) {
+          reject(new Error('Excel文件为空'));
+          return;
+        }
+        
+        const worksheet = workbook.Sheets[firstSheetName];
+        if (!worksheet) {
+          reject(new Error('无法读取Excel工作表'));
+          return;
+        }
+        
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        
+        if (jsonData.length < 2) {
+          reject(new Error('Excel文件格式不正确，至少需要包含标题行和数据行'));
+          return;
+        }
+        
+        const headers = (jsonData[0] as string[]).map((h, index) => h || `列${index + 1}`);
+        const rows = jsonData.slice(1, 6); // 只返回前5行作为预览
+        
+        resolve({ headers, rows, fileName: file.name });
+      } catch (error: any) {
+        reject(new Error(`Excel解析失败: ${error instanceof Error ? error.message : '未知错误'}`));
+      }
+    };
+    
+    reader.onerror = () => {
+      reject(new Error('文件读取失败'));
+    };
+    
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+// 解析Excel文件（支持自定义列映射）
+export const parseExcelFile = (file: File, columnMapping?: { skuColumn: number, quantityColumn: number, nameColumn?: number }): Promise<TransitOrderItem[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -270,29 +315,76 @@ export const parseExcelFile = (file: File): Promise<TransitOrderItem[]> => {
         const headers = jsonData[0] as string[];
         const dataRows = jsonData.slice(1);
         
-        // 查找列索引
-        const productCodeIndex = headers.findIndex(h => 
-          h && (h.includes('产品型号') || h.includes('型号') || h.includes('SKU'))
-        );
-        const productNameIndex = headers.findIndex(h => 
-          h && (h.includes('产品英文名称') || h.includes('英文名称') || h.includes('名称'))
-        );
-        const quantityIndex = headers.findIndex(h => 
-          h && (h.includes('数量') || h.includes('Quantity'))
-        );
+        let productCodeIndex: number;
+        let quantityIndex: number;
+        let productNameIndex: number;
+        
+        if (columnMapping) {
+          // 使用用户指定的列映射
+          productCodeIndex = columnMapping.skuColumn;
+          quantityIndex = columnMapping.quantityColumn;
+          productNameIndex = columnMapping.nameColumn ?? -1;
+        } else {
+          // 尝试自动检测列
+          productCodeIndex = headers.findIndex(h => 
+            h && (h.includes('产品型号') || h.includes('型号') || h.includes('SKU') || h.includes('sku'))
+          );
+          productNameIndex = headers.findIndex(h => 
+            h && (h.includes('产品英文名称') || h.includes('英文名称') || h.includes('名称') || h.includes('name'))
+          );
+          quantityIndex = headers.findIndex(h => 
+            h && (h.includes('数量') || h.includes('Quantity') || h.includes('quantity') || h.includes('qty'))
+          );
+          
+          // 如果找不到，尝试查找包含类似vxe-cell--label的列
+          if (productCodeIndex === -1 && quantityIndex === -1) {
+            // 假设第一列是SKU，最后一个数字列是数量
+            productCodeIndex = 0;
+            
+            // 从后往前找第一个包含数字的列作为数量列
+            for (let i = headers.length - 1; i >= 0; i--) {
+              const hasNumber = dataRows.some(row => {
+                const value = row[i];
+                return value !== undefined && value !== null && !Number.isNaN(Number(value));
+              });
+              if (hasNumber) {
+                quantityIndex = i;
+                break;
+              }
+            }
+          }
+        }
         
         if (productCodeIndex === -1 || quantityIndex === -1) {
-          reject(new Error('Excel文件必须包含"产品型号"和"数量"列'));
+          // 返回错误信息，包含列信息以帮助用户选择
+          reject(new Error(`无法自动识别列。请手动指定列映射。\n找到的列: ${headers.join(', ')}`));
           return;
         }
         
         const transitOrders: TransitOrderItem[] = dataRows
           .filter(row => row[productCodeIndex] && row[quantityIndex])
-          .map(row => ({
-            产品型号: String(row[productCodeIndex] || '').trim(),
-            产品英文名称: String(row[productNameIndex] || '').trim(),
-            数量: Number(row[quantityIndex]) || 0,
-          }))
+          .map(row => {
+            // 处理数量字段，支持文本类型
+            let quantity = 0;
+            const quantityValue = row[quantityIndex];
+            if (quantityValue !== undefined && quantityValue !== null) {
+              // 转换为字符串并去除空格
+              const quantityStr = String(quantityValue).trim();
+              // 去除可能的千分位分隔符
+              const cleanedStr = quantityStr.replace(/,/g, '');
+              // 尝试转换为数字
+              const parsed = Number(cleanedStr);
+              if (!Number.isNaN(parsed)) {
+                quantity = parsed;
+              }
+            }
+            
+            return {
+              产品型号: String(row[productCodeIndex] || '').trim(),
+              产品英文名称: productNameIndex >= 0 ? String(row[productNameIndex] || '').trim() : '',
+              数量: quantity,
+            };
+          })
           .filter(item => item.产品型号 && item.数量 > 0);
         
         resolve(transitOrders);
@@ -310,7 +402,7 @@ export const parseExcelFile = (file: File): Promise<TransitOrderItem[]> => {
 };
 
 // 导出Excel文件
-export const exportToExcel = (data: InventoryItem[], fileName: string = '库存分析结果.xlsx') => {
+export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结果.xlsx') => {
   try {
     // 准备导出数据
     const exportData = data.map(item => {

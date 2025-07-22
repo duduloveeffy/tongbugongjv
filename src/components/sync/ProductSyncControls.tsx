@@ -1,12 +1,12 @@
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Settings, Package, RefreshCw } from 'lucide-react';
+import type { InventoryItem } from '@/lib/inventory-utils';
+import { Package, RefreshCw, Settings } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
-import { type InventoryItem } from '@/lib/inventory-utils';
 
 interface ProductSyncControlsProps {
   isEnabled: boolean;
@@ -126,12 +126,12 @@ export function ProductSyncControls({
             </div>
 
             {isLoading && progress && (
-              <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
+              <div className="rounded bg-muted p-3 text-muted-foreground text-sm">
                 {progress}
               </div>
             )}
 
-            <div className="text-xs text-muted-foreground space-y-1">
+            <div className="space-y-1 text-muted-foreground text-xs">
               <p>• 🔴 红色按钮：有货但净库存≤0，建议同步为无货</p>
               <p>• 🔵 蓝色按钮：无货但净库存&gt;0，建议同步为有货</p>
               <p>• ⚪ 灰色按钮：状态正常，可手动切换</p>

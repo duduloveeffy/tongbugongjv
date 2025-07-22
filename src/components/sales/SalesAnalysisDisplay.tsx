@@ -1,7 +1,7 @@
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { TrendingUp, Package, DollarSign, ShoppingCart } from 'lucide-react';
+import { DollarSign, Package, ShoppingCart, TrendingUp } from 'lucide-react';
 
 interface SalesAnalysis {
   totalOrders: number;
@@ -37,7 +37,7 @@ export function SalesAnalysisDisplay({ salesAnalysis, isLoading }: SalesAnalysis
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-center py-4 text-muted-foreground">
+          <div className="py-4 text-center text-muted-foreground">
             正在分析销量数据...
           </div>
         </CardContent>
@@ -77,41 +77,41 @@ export function SalesAnalysisDisplay({ salesAnalysis, isLoading }: SalesAnalysis
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">总订单数</CardTitle>
+            <CardTitle className="font-medium text-sm">总订单数</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{salesAnalysis.totalOrders.toLocaleString()}</div>
+            <div className="font-bold text-2xl">{salesAnalysis.totalOrders.toLocaleString()}</div>
           </CardContent>
         </Card>
         
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">总收入</CardTitle>
+            <CardTitle className="font-medium text-sm">总收入</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">€{salesAnalysis.totalRevenue.toFixed(2)}</div>
+            <div className="font-bold text-2xl">€{salesAnalysis.totalRevenue.toFixed(2)}</div>
           </CardContent>
         </Card>
         
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">平均订单价值</CardTitle>
+            <CardTitle className="font-medium text-sm">平均订单价值</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">€{salesAnalysis.averageOrderValue.toFixed(2)}</div>
+            <div className="font-bold text-2xl">€{salesAnalysis.averageOrderValue.toFixed(2)}</div>
           </CardContent>
         </Card>
         
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">热销产品</CardTitle>
+            <CardTitle className="font-medium text-sm">热销产品</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{salesAnalysis.topProducts.length}</div>
+            <div className="font-bold text-2xl">{salesAnalysis.topProducts.length}</div>
           </CardContent>
         </Card>
       </div>
