@@ -21,7 +21,8 @@ import { WooCommerceSettings } from '@/components/sync/WooCommerceSettings';
 import { 
   calculateNetStock,
   filterInventoryData, 
-  mergeWarehouseData 
+  mergeWarehouseData,
+  sortInventoryData 
 } from '@/lib/inventory-utils';
 import { toast } from 'sonner';
 
@@ -51,6 +52,7 @@ export default function InventoryAnalysis() {
       skuFilter: skuFilters,
     },
     setFilters,
+    sortConfig,
     isProductDetectionEnabled,
     setIsProductDetectionEnabled,
     isSalesDetectionEnabled,
@@ -112,14 +114,16 @@ export default function InventoryAnalysis() {
 
   // 使用useMemo优化筛选性能
   const filteredInventoryData = useMemo(() => {
-    return filterInventoryData(processedInventoryData, {
+    const filtered = filterInventoryData(processedInventoryData, {
       skuFilters,
       warehouseFilter: '', // 仓库筛选现在通过合并模式处理
       categoryFilter,
       hideZeroStock,
       hideNormalStatus,
     });
-  }, [processedInventoryData, skuFilters, categoryFilter, hideZeroStock, hideNormalStatus]);
+    // 应用排序
+    return sortInventoryData(filtered, sortConfig);
+  }, [processedInventoryData, skuFilters, categoryFilter, hideZeroStock, hideNormalStatus, sortConfig]);
 
   const handleClearData = () => {
     setInventoryData([]);

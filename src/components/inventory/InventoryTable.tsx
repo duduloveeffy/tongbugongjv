@@ -8,6 +8,8 @@ import {
   getSyncButtonColor, 
   getSyncButtonText 
 } from '@/lib/inventory-utils';
+import { type SortConfig, type SortField, useInventoryStore } from '@/store/inventory';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 
 interface InventoryTableProps {
   data: InventoryItem[];
@@ -28,6 +30,32 @@ export function InventoryTable({
   isProductDetectionEnabled,
   isSalesDetectionEnabled,
 }: InventoryTableProps) {
+  const { sortConfig, setSortConfig } = useInventoryStore();
+  
+  const handleSort = (field: SortField) => {
+    if (sortConfig?.field === field) {
+      // 切换排序方向
+      setSortConfig({
+        field,
+        direction: sortConfig.direction === 'asc' ? 'desc' : 'asc'
+      });
+    } else {
+      // 新的排序字段
+      setSortConfig({
+        field,
+        direction: 'desc'
+      });
+    }
+  };
+  
+  const getSortIcon = (field: SortField) => {
+    if (sortConfig?.field !== field) {
+      return <ArrowUpDown className="ml-2 h-4 w-4" />;
+    }
+    return sortConfig.direction === 'asc' 
+      ? <ArrowUp className="ml-2 h-4 w-4" />
+      : <ArrowDown className="ml-2 h-4 w-4" />;
+  };
   if (data.length === 0) {
     return (
       <div className="py-8 text-center text-muted-foreground">
@@ -54,26 +82,103 @@ export function InventoryTable({
                   />
                 </th>
               )}
-              <th className={`sticky ${isProductDetectionEnabled ? 'left-12' : 'left-0'} z-30 h-10 min-w-[120px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
-                产品代码
+              <th className={`sticky ${isProductDetectionEnabled ? 'left-12' : 'left-0'} z-30 h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
+                <Button
+                  variant="ghost"
+                  className="h-full w-full justify-start px-2 font-medium"
+                  onClick={() => handleSort('产品代码')}
+                >
+                  产品代码
+                  {getSortIcon('产品代码')}
+                </Button>
               </th>
-              <th className={`sticky ${isProductDetectionEnabled ? 'left-[168px]' : 'left-[120px]'} z-30 h-10 min-w-[200px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
-                产品名称
+              <th className={`sticky ${isProductDetectionEnabled ? 'left-[168px]' : 'left-[120px]'} z-30 h-10 min-w-[200px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
+                <Button
+                  variant="ghost"
+                  className="h-full w-full justify-start px-2 font-medium"
+                  onClick={() => handleSort('产品名称')}
+                >
+                  产品名称
+                  {getSortIcon('产品名称')}
+                </Button>
               </th>
               <th className="h-10 min-w-[180px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">产品英文名称</th>
               <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">仓库</th>
               <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">可售库存</th>
-              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">净可售库存</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                <Button
+                  variant="ghost"
+                  className="h-full w-full justify-start px-2 font-medium"
+                  onClick={() => handleSort('净可售库存')}
+                >
+                  净可售库存
+                  {getSortIcon('净可售库存')}
+                </Button>
+              </th>
               <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">在途数量</th>
-              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">在途库存</th>
+              <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                <Button
+                  variant="ghost"
+                  className="h-full w-full justify-start px-2 font-medium"
+                  onClick={() => handleSort('在途库存')}
+                >
+                  在途库存
+                  {getSortIcon('在途库存')}
+                </Button>
+              </th>
               <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">一级品类</th>
               {isSalesDetectionEnabled && (
                 <>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">订单数</th>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">销售数量</th>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">30天订单数</th>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">30天销售数量</th>
-                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">预测库存（在途）</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <Button
+                      variant="ghost"
+                      className="h-full w-full justify-start px-2 font-medium"
+                      onClick={() => handleSort('订单数')}
+                    >
+                      订单数
+                      {getSortIcon('订单数')}
+                    </Button>
+                  </th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <Button
+                      variant="ghost"
+                      className="h-full w-full justify-start px-2 font-medium"
+                      onClick={() => handleSort('销售数量')}
+                    >
+                      销售数量
+                      {getSortIcon('销售数量')}
+                    </Button>
+                  </th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <Button
+                      variant="ghost"
+                      className="h-full w-full justify-start px-2 font-medium"
+                      onClick={() => handleSort('30天订单数')}
+                    >
+                      30天订单数
+                      {getSortIcon('30天订单数')}
+                    </Button>
+                  </th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <Button
+                      variant="ghost"
+                      className="h-full w-full justify-start px-2 font-medium"
+                      onClick={() => handleSort('30天销售数量')}
+                    >
+                      30天销售数量
+                      {getSortIcon('30天销售数量')}
+                    </Button>
+                  </th>
+                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <Button
+                      variant="ghost"
+                      className="h-full w-full justify-start px-2 font-medium"
+                      onClick={() => handleSort('预测库存（在途）')}
+                    >
+                      预测库存（在途）
+                      {getSortIcon('预测库存（在途）')}
+                    </Button>
+                  </th>
                 </>
               )}
               {isProductDetectionEnabled && (

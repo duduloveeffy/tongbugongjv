@@ -2,6 +2,24 @@ import type { InventoryItem } from '@/lib/inventory-utils';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export type SortField = 
+  | '产品代码' 
+  | '产品名称' 
+  | '净可售库存' 
+  | '在途库存' 
+  | '30天销售数量' 
+  | '预测库存（在途）'
+  | '订单数'
+  | '销售数量'
+  | '30天订单数';
+
+export type SortDirection = 'asc' | 'desc';
+
+export interface SortConfig {
+  field: SortField;
+  direction: SortDirection;
+}
+
 interface InventoryStore {
   // 库存数据
   inventoryData: InventoryItem[];
@@ -24,6 +42,10 @@ interface InventoryStore {
     skuFilter: string;
   };
   setFilters: (filters: Partial<InventoryStore['filters']>) => void;
+  
+  // 排序配置
+  sortConfig: SortConfig | null;
+  setSortConfig: (config: SortConfig | null) => void;
   
   // 功能开关
   isProductDetectionEnabled: boolean;
@@ -77,6 +99,10 @@ export const useInventoryStore = create<InventoryStore>()(
       setFilters: (newFilters) => set(state => ({ 
         filters: { ...state.filters, ...newFilters } 
       })),
+      
+      // 排序配置
+      sortConfig: null,
+      setSortConfig: (sortConfig) => set({ sortConfig }),
       
       // 功能开关
       isProductDetectionEnabled: false,

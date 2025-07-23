@@ -1,3 +1,4 @@
+import type { SortConfig } from '@/store/inventory';
 import iconv from 'iconv-lite';
 import Papa from 'papaparse';
 import { toast } from 'sonner';
@@ -446,12 +447,149 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '库存分析');
     
+    // 生成采购建议数据
+    const purchaseSuggestions = data
+      .filter(item => {
+        const transitStock = item.在途库存 || calculateNetStock(item);
+        const sales30d = item.salesData?.salesQuantity30d || 0;
+        const predictedTransitQuantity = transitStock - sales30d;
+        
+        // 紧急补货：在途库存<=0 且 30天销售数量>=5
+        // 一般补货：预测库存（在途）<0
+        return (transitStock <= 0 && sales30d >= 5) || predictedTransitQuantity < 0;
+      })
+      .map(item => {
+        const transitStock = item.在途库存 || calculateNetStock(item);
+        const sales30d = item.salesData?.salesQuantity30d || 0;
+        const predictedTransitQuantity = transitStock - sales30d;
+        
+        // 判断预警级别
+        let 预警 = '';
+        let 建议数量 = 0;
+        
+        if (transitStock <= 0 && sales30d >= 5) {
+          预警 = '紧急补货';
+          // 紧急补货：建议数量为30天销量的2倍
+          建议数量 = Math.ceil(sales30d * 2);
+        } else if (predictedTransitQuantity < 0) {
+          预警 = '一般补货';
+          // 一般补货：建议数量为30天销量的1.5倍，最少10个
+          建议数量 = Math.max(10, Math.ceil(sales30d * 1.5));
+        }
+        
+        return {
+          预警: 预警,
+          一级品类: item.一级品类,
+          产品代码: item.产品代码,
+          产品名称: item.产品名称,
+          产品英文名称: item.产品英文名称,
+          建议数量: 建议数量,
+          当前在途库存: transitStock,
+          '30天销售数量': sales30d,
+          '预测库存（在途）': predictedTransitQuantity,
+        };
+      })
+      .filter(item => item.预警) // 只保留有预警的记录
+      .sort((a, b) => {
+        // 紧急补货排在前面
+        if (a.预警 === '紧急补货' && b.预警 !== '紧急补货') return -1;
+        if (a.预警 !== '紧急补货' && b.预警 === '紧急补货') return 1;
+        // 同级别按30天销量降序排序
+        return (b['30天销售数量'] || 0) - (a['30天销售数量'] || 0);
+      });
+    
+    // 创建采购建议工作表
+    if (purchaseSuggestions.length > 0) {
+      const suggestionSheet = XLSX.utils.json_to_sheet(purchaseSuggestions);
+      XLSX.utils.book_append_sheet(workbook, suggestionSheet, '采购建议');
+    }
+    
     XLSX.writeFile(workbook, fileName);
-    toast.success(`已导出 ${data.length} 条记录到 ${fileName}`);
+    
+    const message = purchaseSuggestions.length > 0 
+      ? `已导出 ${data.length} 条库存记录和 ${purchaseSuggestions.length} 条采购建议到 ${fileName}`
+      : `已导出 ${data.length} 条记录到 ${fileName}`;
+    toast.success(message);
   } catch (error) {
     console.error('导出失败:', error);
     toast.error('导出失败，请重试');
   }
+};
+
+// 数据排序函数
+export const sortInventoryData = (
+  data: InventoryItem[],
+  sortConfig: SortConfig | null
+): InventoryItem[] => {
+  if (!sortConfig) return data;
+  
+  const sortedData = [...data];
+  
+  sortedData.sort((a, b) => {
+    let aValue: any;
+    let bValue: any;
+    
+    switch (sortConfig.field) {
+      case '产品代码':
+        aValue = a.产品代码;
+        bValue = b.产品代码;
+        break;
+      case '产品名称':
+        aValue = a.产品名称;
+        bValue = b.产品名称;
+        break;
+      case '净可售库存':
+        aValue = calculateNetStock(a);
+        bValue = calculateNetStock(b);
+        break;
+      case '在途库存':
+        aValue = a.在途库存 || calculateNetStock(a);
+        bValue = b.在途库存 || calculateNetStock(b);
+        break;
+      case '30天销售数量':
+        aValue = a.salesData?.salesQuantity30d || 0;
+        bValue = b.salesData?.salesQuantity30d || 0;
+        break;
+      case '预测库存（在途）': {
+        const aTransit = a.在途库存 || calculateNetStock(a);
+        const bTransit = b.在途库存 || calculateNetStock(b);
+        aValue = aTransit - (a.salesData?.salesQuantity30d || 0);
+        bValue = bTransit - (b.salesData?.salesQuantity30d || 0);
+        break;
+      }
+      case '订单数':
+        aValue = a.salesData?.orderCount || 0;
+        bValue = b.salesData?.orderCount || 0;
+        break;
+      case '销售数量':
+        aValue = a.salesData?.salesQuantity || 0;
+        bValue = b.salesData?.salesQuantity || 0;
+        break;
+      case '30天订单数':
+        aValue = a.salesData?.orderCount30d || 0;
+        bValue = b.salesData?.orderCount30d || 0;
+        break;
+      default:
+        return 0;
+    }
+    
+    // 处理字符串和数字的比较
+    if (typeof aValue === 'string' && typeof bValue === 'string') {
+      return sortConfig.direction === 'asc' 
+        ? aValue.localeCompare(bValue, 'zh-CN')
+        : bValue.localeCompare(aValue, 'zh-CN');
+    }
+    
+    // 数字比较
+    const numA = Number(aValue) || 0;
+    const numB = Number(bValue) || 0;
+    
+    return sortConfig.direction === 'asc' 
+      ? numA - numB
+      : numB - numA;
+  });
+  
+  return sortedData;
 };
 
 // 数据筛选函数
