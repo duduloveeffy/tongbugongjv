@@ -253,6 +253,7 @@ export default function InventoryAnalysis() {
               
               if (response.ok) {
                 const products = await response.json();
+                // console.log(`API响应 - SKU: ${sku}, 产品数量: ${products.length}`, products);
                 return { sku, products, success: true };
               } else if (response.status === 429) {
                 // Rate limit - increase delay
@@ -280,11 +281,17 @@ export default function InventoryAnalysis() {
 
         // Process results
         batchResults.forEach(result => {
+          // console.log(`处理结果 - SKU: ${result.sku}, 成功: ${result.success}, 产品数: ${result.products?.length || 0}`);
+          
           const itemIndex = updatedData.findIndex(item => item.产品代码 === result.sku);
+          // console.log(`查找SKU "${result.sku}" 在库存数据中的索引: ${itemIndex}`);
+          
           if (itemIndex !== -1) {
             if (result.success && result.products.length > 0) {
               const product = result.products[0];
               const existingItem = updatedData[itemIndex];
+              // console.log(`找到产品数据:`, product);
+              
               if (existingItem) {
                 updatedData[itemIndex] = {
                   ...existingItem,
@@ -295,14 +302,20 @@ export default function InventoryAnalysis() {
                     productUrl: product.permalink,
                   }
                 };
+                // console.log(`✅ 成功更新产品: ${result.sku}`, updatedData[itemIndex].productData);
               }
               foundCount++;
             } else {
+              // console.log(`❌ SKU: ${result.sku} - 没有找到产品或请求失败`);
               errorCount++;
               if (!result.success) {
                 failedSkus.push(result.sku);
               }
             }
+          } else {
+            console.warn(`⚠️ 未找到匹配的SKU: ${result.sku}`);
+            // console.log('当前库存数据前10个SKU:', updatedData.map(item => item.产品代码).slice(0, 10));
+            // console.log('搜索的SKU:', result.sku);
           }
           processedCount++;
         });
@@ -333,6 +346,9 @@ export default function InventoryAnalysis() {
         }
       }
 
+      // console.log('更新前的库存数据:', inventoryData.filter(item => item.产品代码 === 'JNR2402-05'));
+      // console.log('更新后的库存数据:', updatedData.filter(item => item.产品代码 === 'JNR2402-05'));
+      
       setInventoryData(updatedData);
       
       const successRate = ((processedCount - failedSkus.length) / processedCount * 100).toFixed(1);
