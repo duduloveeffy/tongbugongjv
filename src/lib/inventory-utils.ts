@@ -452,7 +452,8 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
     // 生成采购建议数据
     const purchaseSuggestions = data
       .filter(item => {
-        const transitStock = item.在途库存 || calculateNetStock(item);
+        const netStock = calculateNetStock(item);
+        const transitStock = item.在途库存 || netStock;
         const sales30d = item.salesData?.salesQuantity30d || 0;
         const predictedTransitQuantity = transitStock - sales30d;
         
@@ -461,7 +462,8 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
         return (transitStock <= 0 && sales30d >= 5) || predictedTransitQuantity < 0;
       })
       .map(item => {
-        const transitStock = item.在途库存 || calculateNetStock(item);
+        const netStock = calculateNetStock(item);
+        const transitStock = item.在途库存 || netStock;
         const sales30d = item.salesData?.salesQuantity30d || 0;
         const predictedTransitQuantity = transitStock - sales30d;
         
@@ -486,6 +488,8 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
           产品名称: item.产品名称,
           产品英文名称: item.产品英文名称,
           建议数量: 建议数量,
+          净可售库存: netStock,
+          在途数量: item.在途数量 || 0,
           当前在途库存: transitStock,
           '30天销售数量': sales30d,
           '预测库存（在途）': predictedTransitQuantity,
