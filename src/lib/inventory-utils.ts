@@ -72,7 +72,9 @@ export interface TransitOrderItem {
 
 // 计算净可售库存
 export const calculateNetStock = (item: InventoryItem): number => {
-  const netStock = Number(item.可售库存减去缺货占用库存) || 0;
+  const 可售库存 = Number(item.可售库存) || 0;
+  const 缺货 = Number(item.缺货) || 0;
+  const netStock = 可售库存 - 缺货;
   return netStock;
 };
 

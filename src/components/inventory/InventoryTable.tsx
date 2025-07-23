@@ -223,8 +223,12 @@ export function InventoryTable({
                   <td className={`whitespace-nowrap p-2 align-middle ${getStockStatusColor(netStock)}`}>
                     {netStock}
                   </td>
-                  <td className="whitespace-nowrap p-2 align-middle">{item.在途数量 || 0}</td>
-                  <td className="whitespace-nowrap p-2 align-middle">{item.在途库存 || netStock}</td>
+                  <td className="whitespace-nowrap p-2 align-middle" title={`SKU: ${item.产品代码}`}>
+                    {item.在途数量 || 0}
+                  </td>
+                  <td className="whitespace-nowrap p-2 align-middle" title={`净可售: ${netStock} + 在途: ${item.在途数量 || 0}`}>
+                    {item.在途库存 || netStock}
+                  </td>
                   <td className="whitespace-nowrap p-2 align-middle">{item.一级品类}</td>
                   {isSalesDetectionEnabled && (
                     <>
