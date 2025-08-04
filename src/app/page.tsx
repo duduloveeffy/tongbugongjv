@@ -377,7 +377,12 @@ export default function InventoryAnalysis() {
       return;
     }
 
-    setSyncingSkus(new Set([...syncingSkus, sku]));
+    // 使用 store 的 get 方法获取最新状态
+    const store = useInventoryStore.getState();
+    const currentSyncingSkus = new Set(store.syncingSkus);
+    currentSyncingSkus.add(sku);
+    setSyncingSkus(currentSyncingSkus);
+    console.log('开始同步:', sku, '当前同步中的SKU:', Array.from(currentSyncingSkus));
 
     try {
       const params = new URLSearchParams({
@@ -421,9 +426,12 @@ export default function InventoryAnalysis() {
       console.error('同步失败:', error);
       toast.error(`${sku} 同步失败：网络错误`);
     } finally {
-      const newSyncingSkus = new Set(syncingSkus);
-      newSyncingSkus.delete(sku);
-      setSyncingSkus(newSyncingSkus);
+      // 使用 store 的 get 方法获取最新状态
+      const store = useInventoryStore.getState();
+      const currentSyncingSkus = new Set(store.syncingSkus);
+      currentSyncingSkus.delete(sku);
+      setSyncingSkus(currentSyncingSkus);
+      console.log('同步完成:', sku, '剩余同步中的SKU:', Array.from(currentSyncingSkus));
     }
   };
 

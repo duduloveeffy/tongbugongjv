@@ -279,13 +279,15 @@ export function InventoryTable({
                         <Button
                           size="sm"
                           disabled={isSyncing || !item.productData}
-                          variant={getSyncButtonColor(isOnline, netStock) as any}
+                          variant={getSyncButtonColor(isOnline, netStock, item.productData?.stockStatus) as any}
                           onClick={() => {
-                            const shouldBeInStock = !isOnline || (!(isOnline && netStock <= 0 ));
+                            // 根据当前库存状态切换：如果当前是有货(instock)则切换为无货，反之亦然
+                            const currentStockStatus = item.productData?.stockStatus || 'outofstock';
+                            const shouldBeInStock = currentStockStatus === 'outofstock';
                             onSyncSku(item.产品代码, shouldBeInStock);
                           }}
                         >
-                          {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock)}
+                          {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock, item.productData?.stockStatus)}
                         </Button>
                       </td>
                     </>

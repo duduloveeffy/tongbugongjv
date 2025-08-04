@@ -85,15 +85,29 @@ export const getStockStatusColor = (netStock: number): string => {
   return 'text-red-600';
 };
 
-// 获取同步按钮颜色
-export const getSyncButtonColor = (isOnline: boolean, netStock: number): string => {
-  if (isOnline && netStock <= 0) return 'destructive'; // 红色 - 有货但净库存<=0
-  if (!isOnline && netStock > 0) return 'default'; // 蓝色 - 无货但净库存>0
-  return 'secondary'; // 灰色 - 状态正常
+// 获取同步按钮颜色（基于库存状态和净库存判断）
+export const getSyncButtonColor = (isOnline: boolean, netStock: number, stockStatus?: string): string => {
+  // 如果有库存状态信息，基于库存状态判断
+  if (stockStatus) {
+    if (stockStatus === 'instock' && netStock <= 0) return 'destructive'; // 红色 - 显示有货但净库存<=0
+    if (stockStatus === 'outofstock' && netStock > 0) return 'default'; // 蓝色 - 显示无货但净库存>0
+    return 'secondary'; // 灰色 - 状态正常
+  }
+  
+  // 兼容旧逻辑（基于上架状态）
+  if (isOnline && netStock <= 0) return 'destructive';
+  if (!isOnline && netStock > 0) return 'default';
+  return 'secondary';
 };
 
-// 获取同步按钮文本
-export const getSyncButtonText = (isOnline: boolean, netStock: number): string => {
+// 获取同步按钮文本（基于当前库存状态显示切换操作）
+export const getSyncButtonText = (isOnline: boolean, netStock: number, currentStockStatus?: string): string => {
+  // 如果有当前库存状态，显示切换操作
+  if (currentStockStatus) {
+    return currentStockStatus === 'instock' ? '同步为无货' : '同步为有货';
+  }
+  
+  // 兼容旧的逻辑（基于建议）
   if (isOnline && netStock <= 0) return '同步为无货';
   if (!isOnline && netStock > 0) return '同步为有货';
   return isOnline ? '同步为无货' : '同步为有货';
