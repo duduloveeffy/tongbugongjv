@@ -413,7 +413,6 @@ export function WebhookManager() {
                           <Switch 
                             checked={webhook.enabled}
                             onCheckedChange={() => handleToggleWebhook(webhook.id, webhook.enabled)}
-                            size="sm"
                           />
                         </div>
                         <div className="text-sm text-muted-foreground">

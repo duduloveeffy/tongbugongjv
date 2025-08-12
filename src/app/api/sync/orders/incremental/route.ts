@@ -668,7 +668,7 @@ async function processOrderItems(supabase: any, orders: any[], orderIdMap: Map<a
     if (!orderId) continue;
 
     if (order.line_items && order.line_items.length > 0) {
-      const orderItems = order.line_items.map(item => ({
+      const orderItems = order.line_items.map((item: any) => ({
         order_id: orderId,
         item_id: safeParseInt(item.id, 0),
         item_type: 'line_item',

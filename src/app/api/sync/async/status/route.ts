@@ -22,19 +22,21 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    let query = supabase.from('sync_tasks').select('*');
+    // Build query based on parameters
+    const baseQuery = supabase.from('sync_tasks').select('*');
     
-    if (taskId) {
-      query = query.eq('id', taskId).single();
-    } else if (siteId) {
-      // Get latest task for site
-      query = query
-        .eq('site_id', siteId)
-        .order('created_at', { ascending: false })
-        .limit(5); // Get last 5 tasks
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await (async () => {
+      if (taskId) {
+        return baseQuery.eq('id', taskId).single();
+      } else if (siteId) {
+        // Get latest task for site
+        return baseQuery
+          .eq('site_id', siteId)
+          .order('created_at', { ascending: false })
+          .limit(5); // Get last 5 tasks
+      }
+      return baseQuery;
+    })();
 
     if (error) {
       // If table doesn't exist, return appropriate message
