@@ -20,7 +20,8 @@ import { Button } from '@/components/ui/button';
 // Utils
 import { 
   calculateNetStock,
-  filterInventoryData, 
+  filterInventoryData,
+  filterWarehousesBeforeMerge,
   mergeWarehouseData,
   sortInventoryData 
 } from '@/lib/inventory-utils';
@@ -54,6 +55,7 @@ export default function InventoryAnalysis() {
       categoryFilters,
       skuFilter: skuFilters,
       excludeSkuPrefixes,
+      excludeWarehouses,
     },
     setFilters,
     sortConfig,
@@ -96,7 +98,12 @@ export default function InventoryAnalysis() {
 
     // 合并仓库数据
     if (isMergedMode) {
-      processedData = mergeWarehouseData(processedData, getTransitQuantityBySku);
+      // 先过滤掉要排除的仓库，然后再合并
+      let dataToMerge = processedData;
+      if (excludeWarehouses) {
+        dataToMerge = filterWarehousesBeforeMerge(processedData, excludeWarehouses);
+      }
+      processedData = mergeWarehouseData(dataToMerge, getTransitQuantityBySku);
     } else {
       // 即使不合并，也要添加在途数量
       processedData = processedData.map(item => {
@@ -111,7 +118,7 @@ export default function InventoryAnalysis() {
     }
 
     return processedData;
-  }, [inventoryData, isMergedMode, getTransitQuantityBySku]);
+  }, [inventoryData, isMergedMode, excludeWarehouses, getTransitQuantityBySku]);
 
   // 使用useMemo优化筛选性能
   const filteredInventoryData = useMemo(() => {
@@ -139,6 +146,7 @@ export default function InventoryAnalysis() {
       hideZeroStock: false,
       hideNormalStatus: false,
       excludeSkuPrefixes: '',
+      excludeWarehouses: '',
     });
     setSelectedSkusForSync(new Set());
     toast.success('数据已清空');
@@ -552,19 +560,19 @@ export default function InventoryAnalysis() {
 
           <InventoryFilters
             skuFilters={skuFilters}
-            warehouseFilter={''}
             categoryFilter={categoryFilter}
             categoryFilters={categoryFilters}
             inventoryData={processedInventoryData}
             excludeSkuPrefixes={excludeSkuPrefixes}
+            excludeWarehouses={excludeWarehouses}
             isMergedMode={isMergedMode}
             hideZeroStock={hideZeroStock}
             hideNormalStatus={hideNormalStatus}
             onSkuFiltersChange={(value) => setFilters({ skuFilter: value })}
-            onWarehouseFilterChange={() => {}} // 不再使用
             onCategoryFilterChange={(value) => setFilters({ categoryFilter: value })}
             onCategoryFiltersChange={(value) => setFilters({ categoryFilters: value })}
             onExcludeSkuPrefixesChange={(value) => setFilters({ excludeSkuPrefixes: value })}
+            onExcludeWarehousesChange={(value) => setFilters({ excludeWarehouses: value })}
             onMergedModeChange={(value) => setFilters({ isMergedMode: value })}
             onHideZeroStockChange={(value) => setFilters({ hideZeroStock: value })}
             onHideNormalStatusChange={(value) => setFilters({ hideNormalStatus: value })}

@@ -3,6 +3,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { 
   type InventoryItem, 
   calculateNetStock, 
   getStockStatusColor, 
@@ -256,10 +262,86 @@ export function InventoryTable({
                     {item.产品名称}
                   </td>
                   <td className="whitespace-nowrap p-2 align-middle">{item.产品英文名称}</td>
-                  <td className="whitespace-nowrap p-2 align-middle">{item.仓库}</td>
-                  <td className="whitespace-nowrap p-2 align-middle">{item.可售库存}</td>
+                  <td className="whitespace-nowrap p-2 align-middle">
+                    {item.warehouseDetails && item.warehouseDetails.length > 3 ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help underline decoration-dotted">{item.仓库}</span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-sm">
+                            <div className="space-y-1">
+                              <p className="font-semibold mb-2">全部仓库：</p>
+                              {item.warehouseDetails.map((detail, idx) => (
+                                <div key={idx} className="text-sm">
+                                  {detail.warehouse}
+                                </div>
+                              ))}
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      item.仓库
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap p-2 align-middle">
+                    {item.warehouseDetails && item.warehouseDetails.length > 0 ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help underline decoration-dotted">{item.可售库存}</span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-sm">
+                            <div className="space-y-1">
+                              <p className="font-semibold mb-2">仓库库存明细：</p>
+                              {item.warehouseDetails.map((detail, idx) => (
+                                <div key={idx} className="flex justify-between text-sm">
+                                  <span>{detail.warehouse}：</span>
+                                  <span className="ml-4">可售 {detail.sellableStock}</span>
+                                </div>
+                              ))}
+                              <div className="border-t mt-2 pt-2 font-semibold flex justify-between">
+                                <span>合计：</span>
+                                <span>{item.可售库存}</span>
+                              </div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      item.可售库存
+                    )}
+                  </td>
                   <td className={`whitespace-nowrap p-2 align-middle ${getStockStatusColor(netStock)}`}>
-                    {netStock}
+                    {item.warehouseDetails && item.warehouseDetails.length > 0 ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help underline decoration-dotted">{netStock}</span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-sm">
+                            <div className="space-y-1">
+                              <p className="font-semibold mb-2">仓库净可售明细：</p>
+                              {item.warehouseDetails.map((detail, idx) => (
+                                <div key={idx} className="flex justify-between text-sm">
+                                  <span>{detail.warehouse}：</span>
+                                  <span className={`ml-4 ${getStockStatusColor(detail.netStock)}`}>
+                                    净可售 {detail.netStock}
+                                  </span>
+                                </div>
+                              ))}
+                              <div className="border-t mt-2 pt-2 font-semibold flex justify-between">
+                                <span>合计：</span>
+                                <span className={getStockStatusColor(netStock)}>{netStock}</span>
+                              </div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      netStock
+                    )}
                   </td>
                   <td className="whitespace-nowrap p-2 align-middle" title={`SKU: ${item.产品代码}`}>
                     {item.在途数量 || 0}

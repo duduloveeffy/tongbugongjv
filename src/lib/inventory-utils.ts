@@ -61,6 +61,12 @@ export interface InventoryItem {
   // 在途数量字段
   在途数量: number;
   在途库存: number;
+  // 仓库明细（合并模式下使用）
+  warehouseDetails?: Array<{
+    warehouse: string;
+    sellableStock: number;
+    netStock: number;
+  }>;
   [key: string]: string | any;
 }
 
@@ -113,6 +119,33 @@ export const getSyncButtonText = (isOnline: boolean, netStock: number, currentSt
   return isOnline ? '同步为无货' : '同步为有货';
 };
 
+// 在合并前过滤掉要排除的仓库
+export const filterWarehousesBeforeMerge = (data: InventoryItem[], excludeWarehouses: string): InventoryItem[] => {
+  if (!excludeWarehouses || !excludeWarehouses.trim()) {
+    return data;
+  }
+  
+  // 解析要排除的仓库列表（支持逗号分隔）
+  const warehousesToExclude = excludeWarehouses
+    .split(/[,，]/)
+    .map(w => w.trim())
+    .filter(w => w)
+    .map(w => w.toLowerCase());
+  
+  if (warehousesToExclude.length === 0) {
+    return data;
+  }
+  
+  // 过滤掉要排除的仓库
+  return data.filter(item => {
+    const warehouseLower = item.仓库.toLowerCase();
+    // 使用包含匹配，支持部分匹配
+    return !warehousesToExclude.some(excluded => 
+      warehouseLower.includes(excluded)
+    );
+  });
+};
+
 // 合并仓库数据
 export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySku: (sku: string) => number): InventoryItem[] => {
   const grouped = new Map<string, InventoryItem[]>();
@@ -135,17 +168,39 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
     if (!firstItem) return;
     
     if (items.length === 1) {
-      // 只有一个仓库的数据
+      // 只有一个仓库的数据，也添加warehouseDetails以支持tooltip显示
       const 在途数量 = getTransitQuantityBySku(sku);
       const 净可售库存 = calculateNetStock(firstItem);
       merged.push({
         ...firstItem,
         在途数量: 在途数量,
         在途库存: 净可售库存 + 在途数量,
+        warehouseDetails: [{
+          warehouse: firstItem.仓库,
+          sellableStock: Number(firstItem.可售库存) || 0,
+          netStock: 净可售库存
+        }]
       });
     } else {
       // 多个仓库的数据，需要合并
-      const warehouses = items.map(item => item.仓库).filter(w => w).join(', ');
+      const warehouseList = items.map(item => item.仓库).filter(w => w);
+      const warehouseCount = warehouseList.length;
+      
+      // 生成仓库明细
+      const warehouseDetails = items.map(item => ({
+        warehouse: item.仓库,
+        sellableStock: Number(item.可售库存) || 0,
+        netStock: calculateNetStock(item)
+      }));
+      
+      // 优化仓库显示：超过3个仓库时简化显示
+      let warehouseDisplay: string;
+      if (warehouseCount <= 3) {
+        warehouseDisplay = `多仓库 (${warehouseList.join(', ')})`;
+      } else {
+        const firstTwo = warehouseList.slice(0, 2).join(', ');
+        warehouseDisplay = `多仓库 (${firstTwo} 等${warehouseCount}个)`;
+      }
       
       const itemWithProductData = items.find(item => item.productData);
       const itemWithSalesData = items.find(item => item.salesData);
@@ -160,7 +215,7 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
         产品单重: firstItem.产品单重,
         产品尺寸: firstItem.产品尺寸,
         规格: firstItem.规格,
-        仓库: `多仓库 (${warehouses})`,
+        仓库: warehouseDisplay,
         仓库代码: '合并',
         一级品类: firstItem.一级品类,
         二级品类: firstItem.二级品类,
@@ -200,6 +255,8 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
         // 在途数据
         在途数量: 在途数量,
         在途库存: 合并净可售库存 + 在途数量,
+        // 仓库明细
+        warehouseDetails: warehouseDetails,
       };
       
       merged.push(mergedItem);

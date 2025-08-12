@@ -103,6 +103,7 @@ interface InventoryStore {
     categoryFilters: string[];  // 新增：多个品类筛选
     skuFilter: string;
     excludeSkuPrefixes: string;
+    excludeWarehouses: string;  // 新增：要排除的仓库列表（合并前生效）
   };
   setFilters: (filters: Partial<InventoryStore['filters']>) => void;
   
@@ -180,6 +181,7 @@ export const useInventoryStore = create<InventoryStore>()(
         categoryFilters: [],  // 新增：多个品类筛选
         skuFilter: '',
         excludeSkuPrefixes: '',
+        excludeWarehouses: '',  // 新增：要排除的仓库列表
       },
       setFilters: (newFilters) => set(state => ({ 
         filters: { ...state.filters, ...newFilters } 

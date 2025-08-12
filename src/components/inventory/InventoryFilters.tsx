@@ -10,19 +10,19 @@ import { CategoryMultiSelect } from './CategoryMultiSelect';
 
 interface InventoryFiltersProps {
   skuFilters: string;
-  warehouseFilter: string;
   categoryFilter?: string;  // 保留以兼容
   categoryFilters?: string[];  // 新增：多个品类筛选
   inventoryData: InventoryItem[];  // 新增：用于提取可用品类
   excludeSkuPrefixes: string;
+  excludeWarehouses: string;  // 新增：要排除的仓库列表
   isMergedMode: boolean;
   hideZeroStock?: boolean;
   hideNormalStatus?: boolean;
   onSkuFiltersChange: (value: string) => void;
-  onWarehouseFilterChange: (value: string) => void;
   onCategoryFilterChange?: (value: string) => void;  // 保留以兼容
   onCategoryFiltersChange?: (value: string[]) => void;  // 新增：多个品类变更
   onExcludeSkuPrefixesChange: (value: string) => void;
+  onExcludeWarehousesChange: (value: string) => void;  // 新增：排除仓库变更
   onMergedModeChange: (value: boolean) => void;
   onHideZeroStockChange?: (value: boolean) => void;
   onHideNormalStatusChange?: (value: boolean) => void;
@@ -38,19 +38,19 @@ interface InventoryFiltersProps {
 
 export function InventoryFilters({
   skuFilters,
-  warehouseFilter,
   categoryFilter,
   categoryFilters = [],
   inventoryData,
   excludeSkuPrefixes,
+  excludeWarehouses,
   isMergedMode,
   hideZeroStock = false,
   hideNormalStatus = false,
   onSkuFiltersChange,
-  onWarehouseFilterChange,
   onCategoryFilterChange,
   onCategoryFiltersChange,
   onExcludeSkuPrefixesChange,
+  onExcludeWarehousesChange,
   onMergedModeChange,
   onHideZeroStockChange,
   onHideNormalStatusChange,
@@ -81,7 +81,7 @@ export function InventoryFilters({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           <div>
             <Label htmlFor="sku-filter">SKU筛选</Label>
             <Input
@@ -89,15 +89,6 @@ export function InventoryFilters({
               placeholder="输入SKU，多个用逗号分隔"
               value={skuFilters}
               onChange={(e) => onSkuFiltersChange(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="warehouse-filter">仓库筛选</Label>
-            <Input
-              id="warehouse-filter"
-              placeholder="输入仓库名称"
-              value={warehouseFilter}
-              onChange={(e) => onWarehouseFilterChange(e.target.value)}
             />
           </div>
           <div>
@@ -111,8 +102,8 @@ export function InventoryFilters({
           </div>
         </div>
         
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="md:col-span-2">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
             <Label htmlFor="exclude-sku-prefixes">排除SKU前缀</Label>
             <Input
               id="exclude-sku-prefixes"
@@ -122,6 +113,20 @@ export function InventoryFilters({
               className="bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900"
             />
             <p className="text-xs text-muted-foreground mt-1">将从结果中过滤掉以这些前缀开头的产品</p>
+          </div>
+          <div>
+            <Label htmlFor="exclude-warehouses">排除仓库（合并前生效）</Label>
+            <Input
+              id="exclude-warehouses"
+              placeholder="输入要排除的仓库，多个用逗号分隔（如：深圳仓-1，测试仓）"
+              value={excludeWarehouses}
+              onChange={(e) => onExcludeWarehousesChange(e.target.value)}
+              className="bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-900"
+              disabled={!isMergedMode}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {isMergedMode ? '合并前将排除这些仓库的数据' : '仅在合并模式下生效'}
+            </p>
           </div>
         </div>
         
