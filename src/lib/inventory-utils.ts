@@ -193,13 +193,15 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
         netStock: calculateNetStock(item)
       }));
       
-      // 优化仓库显示：超过2个仓库时简化显示
+      // 优化仓库显示：超过1个仓库时简化显示
       let warehouseDisplay: string;
-      if (warehouseCount <= 2) {
+      if (warehouseCount === 1) {
+        warehouseDisplay = warehouseList[0];
+      } else if (warehouseCount === 2) {
         warehouseDisplay = `多仓库 (${warehouseList.join(', ')})`;
       } else {
-        const firstTwo = warehouseList.slice(0, 2).join(', ');
-        warehouseDisplay = `多仓库 (${firstTwo} 等${warehouseCount}个)`;
+        const firstOne = warehouseList[0];
+        warehouseDisplay = `多仓库 (${firstOne} 等${warehouseCount}个)`;
       }
       
       const itemWithProductData = items.find(item => item.productData);
