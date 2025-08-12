@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an ERP Inventory Analysis System built with Next.js 15 and React 19 that integrates with WooCommerce for inventory management, sales analysis, and product synchronization. The application supports CSV/Excel file processing, multi-warehouse inventory analysis, and WooCommerce API integration.
+This is an ERP Inventory Analysis System built with Next.js 15 and React 19 that integrates with WooCommerce for inventory management, sales analysis, and product synchronization. The application supports CSV/Excel file processing, multi-warehouse inventory analysis, **multi-site WooCommerce data synchronization with Supabase**, and real-time sales detection from local database.
 
 ## Development Commands
 
@@ -39,16 +39,29 @@ npm run typecheck       # Run TypeScript type checking
 - Transit order management
 
 **2. Sales Detection** (`src/components/sales/`)
-- WooCommerce order analysis with performance optimizations
-- Batch processing (50 SKUs per batch) with progress tracking
-- 30-day sales comparisons and trend analysis
-- Optimized API endpoint: `/api/wc-sales-analysis`
+- **NEW**: Database-driven sales analysis with multi-site support
+- **NEW**: Queries local Supabase database instead of WooCommerce APIs
+- Batch processing (50+ SKUs per batch) with instant responses
+- 30-day sales comparisons and trend analysis across multiple sites
+- **NEW**: Optimized API endpoint: `/api/sales/query` (replaces `/api/wc-sales-analysis`)
+- **NEW**: Multi-site data aggregation and real-time sync status monitoring
 
 **3. Inventory Synchronization** (`src/components/sync/`)
+- **NEW**: Multi-site WooCommerce data synchronization system
+- **NEW**: Complete order and product data storage in Supabase
+- **NEW**: Incremental sync with checkpoint tracking
+- **NEW**: Automated scheduled sync tasks
+- **NEW**: Comprehensive sync monitoring and logging
 - Product detection and stock status synchronization
 - Support for both simple and variant products
 - Intelligent sync recommendations based on stock levels
 - Batch and individual product sync operations
+
+**4. Multi-Site Management** (`src/components/sites/`)
+- **NEW**: WooCommerce site configuration and management
+- **NEW**: API credential secure storage and testing
+- **NEW**: Site-specific sync controls and status monitoring
+- **NEW**: Initial and incremental sync operations
 
 ### Performance Architecture
 

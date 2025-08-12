@@ -1,6 +1,67 @@
 import type { InventoryItem } from '@/lib/inventory-utils';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import LZString from 'lz-string';
+
+// 自定义存储，处理压缩
+const compressedStorage = {
+  getItem: (name: string) => {
+    const str = localStorage.getItem(name);
+    if (!str) return null;
+    
+    try {
+      const parsed = JSON.parse(str);
+      
+      // 如果有压缩的库存数据，解压它
+      if (parsed.state?.compressedInventoryData) {
+        try {
+          const decompressed = LZString.decompressFromUTF16(parsed.state.compressedInventoryData);
+          if (decompressed) {
+            parsed.state.inventoryData = JSON.parse(decompressed);
+            console.log(`✅ Restored ${parsed.state.inventoryData.length} inventory items from compressed storage`);
+          }
+        } catch (e) {
+          console.error('Failed to decompress inventory data:', e);
+        }
+        delete parsed.state.compressedInventoryData;
+      }
+      
+      return JSON.stringify(parsed);
+    } catch (e) {
+      console.error('Failed to parse stored data:', e);
+      return str;
+    }
+  },
+  
+  setItem: (name: string, value: string) => {
+    try {
+      const parsed = JSON.parse(value);
+      
+      // 如果有库存数据，压缩它
+      if (parsed.state?.inventoryData && parsed.state.inventoryData.length > 0) {
+        try {
+          const compressed = LZString.compressToUTF16(JSON.stringify(parsed.state.inventoryData));
+          parsed.state.compressedInventoryData = compressed;
+          console.log(`💾 Persisting ${parsed.state.inventoryData.length} inventory items (compressed: ${(compressed.length / 1024).toFixed(2)}KB)`);
+          delete parsed.state.inventoryData; // 删除原始数据，只保存压缩版本
+        } catch (e) {
+          console.error('Failed to compress inventory data:', e);
+        }
+      }
+      
+      const finalStr = JSON.stringify(parsed);
+      console.log(`Total storage size: ${(finalStr.length / 1024).toFixed(2)}KB`);
+      localStorage.setItem(name, finalStr);
+    } catch (e) {
+      console.error('Failed to save data:', e);
+      localStorage.setItem(name, value);
+    }
+  },
+  
+  removeItem: (name: string) => {
+    localStorage.removeItem(name);
+  },
+};
 
 export type SortField = 
   | '产品代码' 
@@ -23,7 +84,7 @@ export interface SortConfig {
 interface InventoryStore {
   // 库存数据
   inventoryData: InventoryItem[];
-  setInventoryData: (data: InventoryItem[]) => void;
+  setInventoryData: (data: InventoryItem[] | ((prev: InventoryItem[]) => InventoryItem[])) => void;
   
   // 选中的SKU用于同步
   selectedSkusForSync: Set<string>;
@@ -38,8 +99,10 @@ interface InventoryStore {
     isMergedMode: boolean;
     hideZeroStock: boolean;
     hideNormalStatus: boolean;
-    categoryFilter: string;
+    categoryFilter: string;  // 保留单个品类筛选以兼容
+    categoryFilters: string[];  // 新增：多个品类筛选
     skuFilter: string;
+    excludeSkuPrefixes: string;
   };
   setFilters: (filters: Partial<InventoryStore['filters']>) => void;
   
@@ -68,9 +131,24 @@ interface InventoryStore {
   isSalesDetectionLoading: boolean;
   setIsSalesDetectionLoading: (loading: boolean) => void;
   
+  // 销量检测数据
+  salesData: Record<string, any>;
+  setSalesData: (data: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => void;
+  salesLoadingProgress: { current: number; total: number };
+  setSalesLoadingProgress: (progress: { current: number; total: number }) => void;
+  salesDetectionSites: string[];
+  setSalesDetectionSites: (sites: string[]) => void;
+  
+  // 筛选后的数据（用于销量检测页面）
+  filteredData: InventoryItem[];
+  setFilteredData: (data: InventoryItem[]) => void;
+  processedInventoryData: InventoryItem[];
+  setProcessedInventoryData: (data: InventoryItem[]) => void;
+  
   // 工具函数
   updateInventoryItem: (sku: string, updates: Partial<InventoryItem>) => void;
   clearInventoryData: () => void;
+  clearSalesData: () => void;
 }
 
 export const useInventoryStore = create<InventoryStore>()(
@@ -78,7 +156,12 @@ export const useInventoryStore = create<InventoryStore>()(
     (set, get) => ({
       // 库存数据
       inventoryData: [],
-      setInventoryData: (inventoryData) => set({ inventoryData }),
+      setInventoryData: (dataOrUpdater) => 
+        set((state) => ({
+          inventoryData: typeof dataOrUpdater === 'function' 
+            ? dataOrUpdater(state.inventoryData)
+            : dataOrUpdater
+        })),
       
       // 选中的SKU用于同步
       selectedSkusForSync: new Set(),
@@ -94,7 +177,9 @@ export const useInventoryStore = create<InventoryStore>()(
         hideZeroStock: false,
         hideNormalStatus: false,
         categoryFilter: '全部',
+        categoryFilters: [],  // 新增：多个品类筛选
         skuFilter: '',
+        excludeSkuPrefixes: '',
       },
       setFilters: (newFilters) => set(state => ({ 
         filters: { ...state.filters, ...newFilters } 
@@ -109,7 +194,7 @@ export const useInventoryStore = create<InventoryStore>()(
       setIsProductDetectionEnabled: (isProductDetectionEnabled) => 
         set({ isProductDetectionEnabled }),
       
-      isSalesDetectionEnabled: false,
+      isSalesDetectionEnabled: true,
       setIsSalesDetectionEnabled: (isSalesDetectionEnabled) => 
         set({ isSalesDetectionEnabled }),
       
@@ -131,6 +216,26 @@ export const useInventoryStore = create<InventoryStore>()(
       setIsSalesDetectionLoading: (isSalesDetectionLoading) => 
         set({ isSalesDetectionLoading }),
       
+      // 销量检测数据
+      salesData: {},
+      setSalesData: (dataOrUpdater) => {
+        set((state) => ({
+          salesData: typeof dataOrUpdater === 'function' 
+            ? dataOrUpdater(state.salesData)
+            : dataOrUpdater
+        }));
+      },
+      salesLoadingProgress: { current: 0, total: 0 },
+      setSalesLoadingProgress: (salesLoadingProgress) => set({ salesLoadingProgress }),
+      salesDetectionSites: [],
+      setSalesDetectionSites: (salesDetectionSites) => set({ salesDetectionSites }),
+      
+      // 筛选后的数据
+      filteredData: [],
+      setFilteredData: (filteredData) => set({ filteredData }),
+      processedInventoryData: [],
+      setProcessedInventoryData: (processedInventoryData) => set({ processedInventoryData }),
+      
       // 工具函数
       updateInventoryItem: (sku, updates) => {
         const { inventoryData } = get();
@@ -149,16 +254,28 @@ export const useInventoryStore = create<InventoryStore>()(
           salesDetectionProgress: '',
           isProductDetectionLoading: false,
           isSalesDetectionLoading: false,
+          salesData: {},
+          filteredData: [],
+          processedInventoryData: [],
+        });
+      },
+      
+      clearSalesData: () => {
+        set({ 
+          salesData: {},
+          salesLoadingProgress: { current: 0, total: 0 },
         });
       },
     }),
     {
-      name: 'inventory-store',
+      name: 'inventory-storage',
+      storage: createJSONStorage(() => compressedStorage),
       partialize: (state) => ({
         inventoryData: state.inventoryData,
+        salesData: state.salesData,
+        salesDetectionSites: state.salesDetectionSites,
         filters: state.filters,
-        isProductDetectionEnabled: state.isProductDetectionEnabled,
-        isSalesDetectionEnabled: state.isSalesDetectionEnabled,
+        sortConfig: state.sortConfig,
       }),
     }
   )

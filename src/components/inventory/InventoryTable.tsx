@@ -1,3 +1,4 @@
+import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -9,7 +10,16 @@ import {
   getSyncButtonText 
 } from '@/lib/inventory-utils';
 import { type SortConfig, type SortField, useInventoryStore } from '@/store/inventory';
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { useState, lazy, Suspense } from 'react';
+
+// 懒加载趋势图组件
+const SalesTrendChart = lazy(() => 
+  import('@/components/sales/SalesTrendChart').then(mod => ({ default: mod.SalesTrendChart }))
+);
+
+// 导入简单趋势指示器
+import { SimpleTrendIndicator } from '@/components/sales/SimpleTrendIndicator';
 
 interface InventoryTableProps {
   data: InventoryItem[];
@@ -31,6 +41,7 @@ export function InventoryTable({
   isSalesDetectionEnabled,
 }: InventoryTableProps) {
   const { sortConfig, setSortConfig } = useInventoryStore();
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   
   const handleSort = (field: SortField) => {
     if (sortConfig?.field === field) {
@@ -46,6 +57,16 @@ export function InventoryTable({
         direction: 'desc'
       });
     }
+  };
+  
+  const toggleRowExpansion = (sku: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(sku)) {
+      newExpanded.delete(sku);
+    } else {
+      newExpanded.add(sku);
+    }
+    setExpandedRows(newExpanded);
   };
   
   const getSortIcon = (field: SortField) => {
@@ -188,6 +209,10 @@ export function InventoryTable({
                   <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">同步操作</th>
                 </>
               )}
+              {/* 趋势缩略图列 */}
+              {isSalesDetectionEnabled && (
+                <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">趋势</th>
+              )}
             </tr>
           </thead>
           <tbody className="[&_tr:last-child]:border-0">
@@ -198,9 +223,11 @@ export function InventoryTable({
               const sales30d = item.salesData?.salesQuantity30d || 0;
               const transitStock = item.在途库存 || netStock;
               const predictedTransitQuantity = transitStock - sales30d;
+              const isExpanded = expandedRows.has(item.产品代码);
               
               return (
-                <tr key={`${item.产品代码}-${index}`} className="group border-b transition-colors hover:bg-muted/50">
+                <React.Fragment key={`${item.产品代码}-${index}`}>
+                  <tr className="group border-b transition-colors hover:bg-muted/50">
                   {isProductDetectionEnabled && (
                     <td className="sticky left-0 z-10 whitespace-nowrap bg-background p-2 align-middle shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] group-hover:bg-muted/50">
                       <Checkbox
@@ -212,7 +239,18 @@ export function InventoryTable({
                     </td>
                   )}
                   <td className={`sticky ${isProductDetectionEnabled ? 'left-12' : 'left-0'} z-10 whitespace-nowrap bg-background p-2 align-middle font-mono shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] group-hover:bg-muted/50`}>
-                    {item.产品代码}
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={() => toggleRowExpansion(item.产品代码)}
+                        title="展开销售趋势图"
+                      >
+                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </Button>
+                      {item.产品代码}
+                    </div>
                   </td>
                   <td className={`sticky ${isProductDetectionEnabled ? 'left-[168px]' : 'left-[120px]'} z-10 whitespace-nowrap bg-background p-2 align-middle shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] group-hover:bg-muted/50`}>
                     {item.产品名称}
@@ -292,7 +330,38 @@ export function InventoryTable({
                       </td>
                     </>
                   )}
+                  {/* 趋势指示器 */}
+                  {isSalesDetectionEnabled && (
+                    <td className="whitespace-nowrap p-2 align-middle">
+                      <SimpleTrendIndicator 
+                        sku={item.产品代码}
+                        salesData={item.salesData}
+                        onClick={() => toggleRowExpansion(item.产品代码)}
+                      />
+                    </td>
+                  )}
                 </tr>
+                {/* 展开的趋势图行 */}
+                {isExpanded && (
+                  <tr>
+                    <td colSpan={20} className="p-4 border-b bg-muted/20">
+                      <Suspense 
+                        fallback={
+                          <div className="flex items-center justify-center h-96">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                          </div>
+                        }
+                      >
+                        <SalesTrendChart 
+                          sku={item.产品代码}
+                          category={item.一级品类}
+                          onClose={() => toggleRowExpansion(item.产品代码)}
+                        />
+                      </Suspense>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>

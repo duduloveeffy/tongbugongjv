@@ -8,6 +8,8 @@ export const env = createEnv({
 	 */
 	server: {
 		NODE_ENV: z.enum(["development", "test", "production"]),
+		UPSTASH_REDIS_REST_URL: z.string().optional(),
+		UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 	},
 
 	/**
@@ -19,6 +21,8 @@ export const env = createEnv({
 		NEXT_PUBLIC_WOOCOMMERCE_SITE_URL: z.string().optional(),
 		NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_KEY: z.string().optional(),
 		NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_SECRET: z.string().optional(),
+		NEXT_PUBLIC_SUPABASE_URL: z.string().optional(),
+		NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
 	},
 
 	/**
@@ -30,6 +34,10 @@ export const env = createEnv({
 		NEXT_PUBLIC_WOOCOMMERCE_SITE_URL: process.env.NEXT_PUBLIC_WOOCOMMERCE_SITE_URL,
 		NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_KEY: process.env.NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_KEY,
 		NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_SECRET: process.env.NEXT_PUBLIC_WOOCOMMERCE_CONSUMER_SECRET,
+		NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+		NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+		UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+		UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
 	},
 	/**
 	 * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

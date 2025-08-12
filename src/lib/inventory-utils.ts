@@ -618,14 +618,25 @@ export const filterInventoryData = (
   filters: {
     skuFilters: string;
     warehouseFilter: string;
-    categoryFilter: string;
+    categoryFilter?: string;  // 保留单个品类筛选以兼容
+    categoryFilters?: string[];  // 新增：多个品类筛选
     hideZeroStock?: boolean;
     hideNormalStatus?: boolean;
+    excludeSkuPrefixes?: string;
   }
 ): InventoryItem[] => {
-  const { skuFilters, warehouseFilter, categoryFilter, hideZeroStock = false, hideNormalStatus = false } = filters;
+  const { skuFilters, warehouseFilter, categoryFilter, categoryFilters, hideZeroStock = false, hideNormalStatus = false, excludeSkuPrefixes = '' } = filters;
   
   return data.filter(item => {
+    // SKU前缀排除筛选（优先级最高）
+    if (excludeSkuPrefixes.trim()) {
+      const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
+      const shouldExclude = excludeList.some(prefix => 
+        item.产品代码.toLowerCase().startsWith(prefix.toLowerCase())
+      );
+      if (shouldExclude) return false;
+    }
+    
     // SKU筛选
     if (skuFilters.trim()) {
       const skuList = skuFilters.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
@@ -644,8 +655,18 @@ export const filterInventoryData = (
       }
     }
     
-    // 品类筛选
-    if (categoryFilter.trim() && categoryFilter !== '全部') {
+    // 品类筛选 - 支持多选
+    if (categoryFilters && categoryFilters.length > 0) {
+      // 使用多个品类筛选（OR逻辑）
+      const matchesCategory = categoryFilters.some(filter => {
+        const filterLower = filter.toLowerCase();
+        return item.一级品类.toLowerCase().includes(filterLower) ||
+               item.二级品类.toLowerCase().includes(filterLower) ||
+               item.三级品类.toLowerCase().includes(filterLower);
+      });
+      if (!matchesCategory) return false;
+    } else if (categoryFilter && categoryFilter.trim() && categoryFilter !== '全部') {
+      // 向后兼容：单个品类筛选
       const matchesCategory = 
         item.一级品类.toLowerCase().includes(categoryFilter.toLowerCase()) ||
         item.二级品类.toLowerCase().includes(categoryFilter.toLowerCase()) ||

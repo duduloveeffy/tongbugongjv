@@ -6,17 +6,23 @@ import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { type InventoryItem, exportToExcel } from '@/lib/inventory-utils';
 import { Download, Filter, Search, Trash2, TrendingUp } from 'lucide-react';
+import { CategoryMultiSelect } from './CategoryMultiSelect';
 
 interface InventoryFiltersProps {
   skuFilters: string;
   warehouseFilter: string;
-  categoryFilter: string;
+  categoryFilter?: string;  // 保留以兼容
+  categoryFilters?: string[];  // 新增：多个品类筛选
+  inventoryData: InventoryItem[];  // 新增：用于提取可用品类
+  excludeSkuPrefixes: string;
   isMergedMode: boolean;
   hideZeroStock?: boolean;
   hideNormalStatus?: boolean;
   onSkuFiltersChange: (value: string) => void;
   onWarehouseFilterChange: (value: string) => void;
-  onCategoryFilterChange: (value: string) => void;
+  onCategoryFilterChange?: (value: string) => void;  // 保留以兼容
+  onCategoryFiltersChange?: (value: string[]) => void;  // 新增：多个品类变更
+  onExcludeSkuPrefixesChange: (value: string) => void;
   onMergedModeChange: (value: boolean) => void;
   onHideZeroStockChange?: (value: boolean) => void;
   onHideNormalStatusChange?: (value: boolean) => void;
@@ -34,12 +40,17 @@ export function InventoryFilters({
   skuFilters,
   warehouseFilter,
   categoryFilter,
+  categoryFilters = [],
+  inventoryData,
+  excludeSkuPrefixes,
   isMergedMode,
   hideZeroStock = false,
   hideNormalStatus = false,
   onSkuFiltersChange,
   onWarehouseFilterChange,
   onCategoryFilterChange,
+  onCategoryFiltersChange,
+  onExcludeSkuPrefixesChange,
   onMergedModeChange,
   onHideZeroStockChange,
   onHideNormalStatusChange,
@@ -90,13 +101,27 @@ export function InventoryFilters({
             />
           </div>
           <div>
-            <Label htmlFor="category-filter">品类筛选</Label>
-            <Input
-              id="category-filter"
-              placeholder="输入品类名称"
-              value={categoryFilter}
-              onChange={(e) => onCategoryFilterChange(e.target.value)}
+            <Label htmlFor="category-filter">品类筛选（多选）</Label>
+            <CategoryMultiSelect
+              inventoryData={inventoryData}
+              selectedCategories={categoryFilters}
+              onCategoriesChange={onCategoryFiltersChange || (() => {})}
+              placeholder="选择或输入品类..."
             />
+          </div>
+        </div>
+        
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="md:col-span-2">
+            <Label htmlFor="exclude-sku-prefixes">排除SKU前缀</Label>
+            <Input
+              id="exclude-sku-prefixes"
+              placeholder="输入要排除的SKU前缀，多个用逗号分隔（如：AK-H，AK-G）"
+              value={excludeSkuPrefixes}
+              onChange={(e) => onExcludeSkuPrefixesChange(e.target.value)}
+              className="bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900"
+            />
+            <p className="text-xs text-muted-foreground mt-1">将从结果中过滤掉以这些前缀开头的产品</p>
           </div>
         </div>
         

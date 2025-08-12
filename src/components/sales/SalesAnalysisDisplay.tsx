@@ -1,7 +1,8 @@
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { DollarSign, Package, ShoppingCart, TrendingUp } from 'lucide-react';
+import { DollarSign, Package, ShoppingCart, TrendingUp, RefreshCw } from 'lucide-react';
 
 interface SalesAnalysis {
   totalOrders: number;
@@ -24,9 +25,10 @@ interface SalesAnalysis {
 interface SalesAnalysisDisplayProps {
   salesAnalysis: SalesAnalysis | null;
   isLoading: boolean;
+  onRefresh?: () => void;
 }
 
-export function SalesAnalysisDisplay({ salesAnalysis, isLoading }: SalesAnalysisDisplayProps) {
+export function SalesAnalysisDisplay({ salesAnalysis, isLoading, onRefresh }: SalesAnalysisDisplayProps) {
   if (isLoading) {
     return (
       <Card>
@@ -49,13 +51,28 @@ export function SalesAnalysisDisplay({ salesAnalysis, isLoading }: SalesAnalysis
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5" />
-            销量分析
-          </CardTitle>
-          <CardDescription>
-            暂无销量数据，请先获取订单数据
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                销量分析
+              </CardTitle>
+              <CardDescription className="mt-2">
+                暂无销量数据，请先获取订单数据
+              </CardDescription>
+            </div>
+            {onRefresh && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRefresh}
+                disabled={isLoading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                加载Supabase数据
+              </Button>
+            )}
+          </div>
         </CardHeader>
       </Card>
     );
@@ -73,6 +90,21 @@ export function SalesAnalysisDisplay({ salesAnalysis, isLoading }: SalesAnalysis
 
   return (
     <div className="space-y-6">
+      {/* 刷新按钮 */}
+      {onRefresh && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            刷新数据
+          </Button>
+        </div>
+      )}
+      
       {/* 统计卡片 */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>

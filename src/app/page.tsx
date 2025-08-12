@@ -4,18 +4,18 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useInventoryStore } from '@/store/inventory';
 import { useWooCommerceStore } from '@/store/woocommerce';
-import { Layers, Settings, TrendingUp } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { Layers, Settings, TrendingUp, Globe, Webhook, Save } from 'lucide-react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
+import Link from 'next/link';
 
 import { InventoryFilters } from '@/components/inventory/InventoryFilters';
 import { InventoryTable } from '@/components/inventory/InventoryTable';
 // Components
 import { InventoryUpload } from '@/components/inventory/InventoryUpload';
 import { TransitFilesList } from '@/components/inventory/TransitFilesList';
-import { SalesAnalysisDisplay } from '@/components/sales/SalesAnalysisDisplay';
-import { SalesDetectionControls } from '@/components/sales/SalesDetectionControls';
 import { ProductSyncControls } from '@/components/sync/ProductSyncControls';
-import { WooCommerceSettings } from '@/components/sync/WooCommerceSettings';
+import { WebhookManager } from '@/components/webhook/WebhookManager';
+import { Button } from '@/components/ui/button';
 
 // Utils
 import { 
@@ -25,6 +25,7 @@ import {
   sortInventoryData 
 } from '@/lib/inventory-utils';
 import { toast } from 'sonner';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function InventoryAnalysis() {
   // Local state (only for temporary UI state)
@@ -35,6 +36,7 @@ export default function InventoryAnalysis() {
     start: '',
     end: ''
   });
+  const [activeTab, setActiveTab] = useState('inventory');
 
   // Inventory store state
   const {
@@ -49,7 +51,9 @@ export default function InventoryAnalysis() {
       hideZeroStock,
       hideNormalStatus,
       categoryFilter,
+      categoryFilters,
       skuFilter: skuFilters,
+      excludeSkuPrefixes,
     },
     setFilters,
     sortConfig,
@@ -72,9 +76,6 @@ export default function InventoryAnalysis() {
   const {
     settings,
     setSettings,
-    orders,
-    salesAnalysis,
-    isLoadingOrders: wooLoading,
     transitOrders,
     transitFiles,
     setTransitOrders,
@@ -83,9 +84,9 @@ export default function InventoryAnalysis() {
     removeTransitFile,
     getTransitQuantityBySku,
     clearTransitOrders,
-    fetchOrders,
     fetchSalesAnalysis,
   } = useWooCommerceStore();
+
 
   // 使用useMemo优化数据处理性能
   const processedInventoryData = useMemo(() => {
@@ -118,12 +119,14 @@ export default function InventoryAnalysis() {
       skuFilters,
       warehouseFilter: '', // 仓库筛选现在通过合并模式处理
       categoryFilter,
+      categoryFilters,
       hideZeroStock,
       hideNormalStatus,
+      excludeSkuPrefixes,
     });
     // 应用排序
     return sortInventoryData(filtered, sortConfig);
-  }, [processedInventoryData, skuFilters, categoryFilter, hideZeroStock, hideNormalStatus, sortConfig]);
+  }, [processedInventoryData, skuFilters, categoryFilter, categoryFilters, hideZeroStock, hideNormalStatus, excludeSkuPrefixes, sortConfig]);
 
   const handleClearData = () => {
     setInventoryData([]);
@@ -132,8 +135,10 @@ export default function InventoryAnalysis() {
     setFilters({
       skuFilter: '',
       categoryFilter: '全部',
+      categoryFilters: [],
       hideZeroStock: false,
       hideNormalStatus: false,
+      excludeSkuPrefixes: '',
     });
     setSelectedSkusForSync(new Set());
     toast.success('数据已清空');
@@ -149,63 +154,88 @@ export default function InventoryAnalysis() {
     setSelectedSkusForSync(newSelection);
   }, [selectedSkusForSync]);
 
-  // 优化后的销量检测函数 - 使用useCallback避免不必要的重渲染
-  const handleSalesDetection = useCallback(async (skus: string[]) => {
-    if (!settings.consumerKey || !settings.consumerSecret || !settings.siteUrl) {
-      toast.error('请先配置WooCommerce API');
-      return;
-    }
-
+  // 优化后的销量检测函数 - 支持多数据源
+  const handleSalesDetection = useCallback(async (skus: string[], config?: any) => {
     if (skus.length === 0) {
       toast.error('没有要检测的SKU');
       return;
     }
 
+    // 如果没有提供config，使用默认配置（Supabase）
+    if (!config) {
+      config = {
+        dataSource: 'supabase',
+        siteIds: [], // 空数组表示查询所有站点
+        statuses: salesOrderStatuses,
+        dateStart: salesDateRange.start || undefined,
+        dateEnd: salesDateRange.end || undefined,
+        daysBack: 30,
+      };
+    }
+
+    // 检查配置
+    if (config.dataSource === 'woocommerce') {
+      // WooCommerce模式：需要站点选择或API凭证
+      if (!config.siteId && (!settings.consumerKey || !settings.consumerSecret || !settings.siteUrl)) {
+        toast.error('请先配置WooCommerce API或选择站点');
+        return;
+      }
+    } else if (config.dataSource === 'supabase') {
+      // Supabase模式：如果没有指定站点，会查询所有站点
+      // 空数组表示查询所有站点，这是允许的
+      if (config.siteIds === undefined) {
+        config.siteIds = []; // 设置为空数组，表示查询所有站点
+      }
+    }
+
     setIsSalesLoading(true);
-    setSalesDetectionProgress('开始优化销量检测...');
+    setSalesDetectionProgress('正在检测销量...');
 
     try {
-      // 使用优化后的销量检测API
+      // 调用改进后的销量检测API
       const salesData = await fetchSalesAnalysis({
         skus,
-        statuses: salesOrderStatuses,
-        startDate: salesDateRange.start,
-        endDate: salesDateRange.end,
+        dataSource: config.dataSource,
+        siteIds: config.siteIds,
+        siteId: config.siteId,
+        statuses: config.statuses || salesOrderStatuses,
+        startDate: config.dateStart || salesDateRange.start,
+        endDate: config.dateEnd || salesDateRange.end,
+        daysBack: config.daysBack || 30,
         onProgress: (progress) => {
-          const percentage = Math.round((progress.current / progress.total) * 100);
-          setSalesDetectionProgress(`${progress.message} (${percentage}%)`);
+          setSalesDetectionProgress(progress.message);
         }
       });
 
-      // 更新库存数据
-      const updatedData = inventoryData.map(item => {
-        if (skus.includes(item.产品代码)) {
-          const itemSalesData = salesData[item.产品代码];
-          if (itemSalesData) {
-            return {
-              ...item,
-              salesData: itemSalesData
-            };
+      // 更新库存数据中的销量信息
+      setInventoryData((prevData) => 
+        prevData.map(item => {
+          if (skus.includes(item.产品代码)) {
+            const itemSalesData = salesData[item.产品代码];
+            if (itemSalesData) {
+              return {
+                ...item,
+                salesData: itemSalesData
+              };
+            }
           }
-        }
-        return item;
-      });
-
-      setInventoryData(updatedData);
+          return item;
+        })
+      );
       
-      setSalesDetectionProgress(`✅ 销量检测完成！处理了 ${skus.length} 个SKU`);
+      setSalesDetectionProgress(`检测完成！处理了 ${skus.length} 个SKU`);
       toast.success(`销量检测完成！处理了 ${skus.length} 个SKU`);
       
     } catch (error: any) {
       console.error('销量检测失败:', error);
       const errorMessage = error.message || '销量检测失败，请检查配置';
       toast.error(errorMessage);
-      setSalesDetectionProgress(`❌ 错误: ${errorMessage}`);
+      setSalesDetectionProgress('检测失败');
     } finally {
       setIsSalesLoading(false);
       setTimeout(() => setSalesDetectionProgress(''), 5000);
     }
-  }, [settings, salesOrderStatuses, salesDateRange, fetchSalesAnalysis, inventoryData, filteredInventoryData]);
+  }, [settings, salesOrderStatuses, salesDateRange, fetchSalesAnalysis]);
 
   // Product Detection Functions
   const handleProductDetection = async (skus: string[]) => {
@@ -231,9 +261,9 @@ export default function InventoryAnalysis() {
     const failedSkus: string[] = [];
 
     try {
-      const updatedData = [...inventoryData];
       let processedCount = 0;
       let foundCount = 0;
+      const productDataMap = new Map<string, any>();
 
       for (let i = 0; i < skus.length; i += batchSize) {
         const batch = skus.slice(i, i + batchSize);
@@ -279,43 +309,22 @@ export default function InventoryAnalysis() {
         const batchResults = await Promise.all(batchPromises);
         let errorCount = 0;
 
-        // Process results
+        // Process results - 收集到Map中
         batchResults.forEach(result => {
-          // console.log(`处理结果 - SKU: ${result.sku}, 成功: ${result.success}, 产品数: ${result.products?.length || 0}`);
-          
-          const itemIndex = updatedData.findIndex(item => item.产品代码 === result.sku);
-          // console.log(`查找SKU "${result.sku}" 在库存数据中的索引: ${itemIndex}`);
-          
-          if (itemIndex !== -1) {
-            if (result.success && result.products.length > 0) {
-              const product = result.products[0];
-              const existingItem = updatedData[itemIndex];
-              // console.log(`找到产品数据:`, product);
-              
-              if (existingItem) {
-                updatedData[itemIndex] = {
-                  ...existingItem,
-                  productData: {
-                    isOnline: product.status === 'publish',
-                    status: product.status,
-                    stockStatus: product.stock_status,
-                    productUrl: product.permalink,
-                  }
-                };
-                // console.log(`✅ 成功更新产品: ${result.sku}`, updatedData[itemIndex].productData);
-              }
-              foundCount++;
-            } else {
-              // console.log(`❌ SKU: ${result.sku} - 没有找到产品或请求失败`);
-              errorCount++;
-              if (!result.success) {
-                failedSkus.push(result.sku);
-              }
-            }
+          if (result.success && result.products.length > 0) {
+            const product = result.products[0];
+            productDataMap.set(result.sku, {
+              isOnline: product.status === 'publish',
+              status: product.status,
+              stockStatus: product.stock_status,
+              productUrl: product.permalink,
+            });
+            foundCount++;
           } else {
-            console.warn(`⚠️ 未找到匹配的SKU: ${result.sku}`);
-            // console.log('当前库存数据前10个SKU:', updatedData.map(item => item.产品代码).slice(0, 10));
-            // console.log('搜索的SKU:', result.sku);
+            errorCount++;
+            if (!result.success) {
+              failedSkus.push(result.sku);
+            }
           }
           processedCount++;
         });
@@ -346,10 +355,19 @@ export default function InventoryAnalysis() {
         }
       }
 
-      // console.log('更新前的库存数据:', inventoryData.filter(item => item.产品代码 === 'JNR2402-05'));
-      // console.log('更新后的库存数据:', updatedData.filter(item => item.产品代码 === 'JNR2402-05'));
-      
-      setInventoryData(updatedData);
+      // 使用函数式更新，基于最新状态
+      setInventoryData((prevData) => 
+        prevData.map(item => {
+          const productData = productDataMap.get(item.产品代码);
+          if (productData) {
+            return {
+              ...item,
+              productData
+            };
+          }
+          return item;
+        })
+      );
       
       const successRate = ((processedCount - failedSkus.length) / processedCount * 100).toFixed(1);
       let resultMessage = `成功检测 ${processedCount} 个SKU，找到 ${foundCount} 个产品 (成功率: ${successRate}%)`;
@@ -402,20 +420,21 @@ export default function InventoryAnalysis() {
       if (response.ok) {
         const result = await response.json();
         
-        // Update local data
-        const updatedData = inventoryData.map(item => {
-          if (item.产品代码 === sku && item.productData) {
-            return {
-              ...item,
-              productData: {
-                ...item.productData,
-                stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
-              }
-            };
-          }
-          return item;
-        });
-        setInventoryData(updatedData);
+        // 使用函数式更新，基于最新状态
+        setInventoryData((prevData) => 
+          prevData.map(item => {
+            if (item.产品代码 === sku && item.productData) {
+              return {
+                ...item,
+                productData: {
+                  ...item.productData,
+                  stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
+                }
+              };
+            }
+            return item;
+          })
+        );
         
         toast.success(`${sku} 同步成功：${shouldBeInStock ? '有货' : '无货'}`);
       } else {
@@ -462,31 +481,54 @@ export default function InventoryAnalysis() {
 
   return (
     <div className="container mx-auto space-y-6 py-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="font-bold text-3xl tracking-tight">ERP库存分析系统</h1>
           <p className="text-muted-foreground">
             库存分析、销量检测与WooCommerce库存同步
           </p>
         </div>
-        <WooCommerceSettings settings={settings} onSave={setSettings} />
+        <div className="flex gap-2">
+          <Link href="/sites">
+            <Button variant="outline">
+              <Globe className="h-4 w-4 mr-2" />
+              站点管理
+            </Button>
+          </Link>
+          <Link href="/sales-detection">
+            <Button variant="outline">
+              <TrendingUp className="h-4 w-4 mr-2" />
+              检测设置
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <Separator />
 
-      <Tabs defaultValue="inventory" className="space-y-6">
+      {/* 数据状态提示 */}
+      {inventoryData.length > 0 && (
+        <Alert className="mb-4">
+          <Save className="h-4 w-4" />
+          <AlertDescription>
+            当前已加载 {inventoryData.length} 条库存数据。数据已自动保存，刷新页面后会自动恢复。
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Tabs defaultValue="inventory" className="space-y-6" value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="inventory" className="flex items-center gap-2">
             <Layers className="h-4 w-4" />
             库存分析
           </TabsTrigger>
-          <TabsTrigger value="sales" className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" />
-            销量检测
-          </TabsTrigger>
           <TabsTrigger value="sync" className="flex items-center gap-2">
             <Settings className="h-4 w-4" />
             库存同步
+          </TabsTrigger>
+          <TabsTrigger value="webhook" className="flex items-center gap-2">
+            <Webhook className="h-4 w-4" />
+            实时同步
           </TabsTrigger>
         </TabsList>
 
@@ -512,12 +554,17 @@ export default function InventoryAnalysis() {
             skuFilters={skuFilters}
             warehouseFilter={''}
             categoryFilter={categoryFilter}
+            categoryFilters={categoryFilters}
+            inventoryData={processedInventoryData}
+            excludeSkuPrefixes={excludeSkuPrefixes}
             isMergedMode={isMergedMode}
             hideZeroStock={hideZeroStock}
             hideNormalStatus={hideNormalStatus}
             onSkuFiltersChange={(value) => setFilters({ skuFilter: value })}
             onWarehouseFilterChange={() => {}} // 不再使用
             onCategoryFilterChange={(value) => setFilters({ categoryFilter: value })}
+            onCategoryFiltersChange={(value) => setFilters({ categoryFilters: value })}
+            onExcludeSkuPrefixesChange={(value) => setFilters({ excludeSkuPrefixes: value })}
             onMergedModeChange={(value) => setFilters({ isMergedMode: value })}
             onHideZeroStockChange={(value) => setFilters({ hideZeroStock: value })}
             onHideNormalStatusChange={(value) => setFilters({ hideNormalStatus: value })}
@@ -529,7 +576,16 @@ export default function InventoryAnalysis() {
             salesProgress={salesDetectionProgress}
             onStartSalesDetection={() => {
               const skus = filteredInventoryData.map(item => item.产品代码);
-              handleSalesDetection(skus);
+              // 默认使用Supabase数据源，更快速
+              const defaultConfig = {
+                dataSource: 'supabase' as const,
+                siteIds: [], // 空数组表示所有站点
+                statuses: salesOrderStatuses,
+                dateStart: salesDateRange.start || undefined,
+                dateEnd: salesDateRange.end || undefined,
+                daysBack: 30,
+              };
+              handleSalesDetection(skus, defaultConfig);
             }}
           />
 
@@ -541,26 +597,6 @@ export default function InventoryAnalysis() {
             onSyncSku={handleSyncSku}
             isProductDetectionEnabled={isProductDetectionEnabled}
             isSalesDetectionEnabled={isSalesDetectionEnabled}
-          />
-        </TabsContent>
-
-        <TabsContent value="sales" className="space-y-6">
-          <SalesDetectionControls
-            isEnabled={isSalesDetectionEnabled}
-            isLoading={isSalesLoading}
-            progress={salesDetectionProgress}
-            orderStatuses={salesOrderStatuses}
-            dateRange={salesDateRange}
-            onToggle={setIsSalesDetectionEnabled}
-            onOrderStatusesChange={setSalesOrderStatuses}
-            onDateRangeChange={setSalesDateRange}
-            onStartDetection={handleSalesDetection}
-            filteredData={filteredInventoryData}
-          />
-
-          <SalesAnalysisDisplay
-            salesAnalysis={salesAnalysis}
-            isLoading={wooLoading}
           />
         </TabsContent>
 
@@ -585,6 +621,10 @@ export default function InventoryAnalysis() {
             isProductDetectionEnabled={isProductDetectionEnabled}
             isSalesDetectionEnabled={isSalesDetectionEnabled}
           />
+        </TabsContent>
+
+        <TabsContent value="webhook" className="space-y-6">
+          <WebhookManager />
         </TabsContent>
       </Tabs>
     </div>

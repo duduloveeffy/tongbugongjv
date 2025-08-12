@@ -8,6 +8,27 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ColumnMappingDialog } from './ColumnMappingDialog';
 
+// 同步品类映射到数据库
+async function syncCategoryMappings(inventoryData: InventoryItem[]) {
+  try {
+    const response = await fetch('/api/categories/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inventoryData }),
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log(`同步了 ${result.synced} 个SKU的品类映射`);
+      if (result.synced > 0) {
+        toast.info(`已同步 ${result.synced} 个品类映射`);
+      }
+    }
+  } catch (error) {
+    console.error('品类映射同步失败:', error);
+  }
+}
+
 interface InventoryUploadProps {
   onInventoryDataLoad: (data: InventoryItem[], headers: string[]) => void;
   onTransitDataLoad: (data: TransitOrderItem[]) => void;
@@ -67,6 +88,9 @@ export function InventoryUpload({
 
       toast.success(`成功导入 ${data.length} 条库存数据`);
       onInventoryDataLoad(data as InventoryItem[], headers);
+      
+      // 同步品类映射到数据库
+      syncCategoryMappings(data as InventoryItem[]);
     } catch (error) {
       console.error('文件处理失败:', error);
       toast.error(error instanceof Error ? error.message : '文件处理失败');
