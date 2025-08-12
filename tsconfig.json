@@ -32,11 +32,26 @@
 	},
 	"include": [
 		"next-env.d.ts",
-		"**/*.ts",
-		"**/*.tsx",
-		"**/*.cjs",
-		"**/*.js",
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"src/**/*.js",
 		".next/types/**/*.ts"
 	],
-	"exclude": ["node_modules"]
+	"exclude": [
+		"node_modules",
+		"**/*.test.js",
+		"**/*.test.ts",
+		"test-*.js",
+		"debug-*.js",
+		"check-*.js",
+		"batch-*.js",
+		"investigate-*.js",
+		"fix-*.js",
+		"refresh-*.js",
+		"sync-*.js",
+		"clear-*.js",
+		"scripts/**/*",
+		"supabase/**/*",
+		"wc-sync-plugin/**/*"
+	]
 }

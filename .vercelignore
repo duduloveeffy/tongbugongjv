@@ -1,0 +1,48 @@
+# Vercel Ignore File
+# 忽略测试和调试文件
+
+# 测试文件
+*.test.js
+*.test.ts
+test-*.js
+test-*.ts
+
+# 调试文件
+debug-*.js
+debug-*.ts
+check-*.js
+investigate-*.js
+batch-*.js
+fix-*.js
+refresh-*.js
+sync-*.js
+clear-*.js
+
+# 文档文件
+*.md
+!README.md
+docs/
+
+# 数据库脚本
+scripts/
+supabase/migrations/
+supabase/patches/
+supabase/schema*.sql
+
+# WordPress 插件（如果不需要部署）
+wc-sync-plugin/
+
+# 环境文件示例
+.env.example
+.env.local.example
+
+# 开发工具配置
+.vscode/
+.idea/
+
+# 其他
+.git/
+.gitignore
+node_modules/
+.next/
+out/
