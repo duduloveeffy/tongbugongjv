@@ -263,7 +263,7 @@ export function InventoryTable({
                   </td>
                   <td className="whitespace-nowrap p-2 align-middle">{item.产品英文名称}</td>
                   <td className="whitespace-nowrap p-2 align-middle">
-                    {item.warehouseDetails && item.warehouseDetails.length > 3 ? (
+                    {item.warehouseDetails && item.warehouseDetails.length > 2 ? (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>

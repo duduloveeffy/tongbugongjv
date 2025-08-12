@@ -193,9 +193,9 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
         netStock: calculateNetStock(item)
       }));
       
-      // 优化仓库显示：超过3个仓库时简化显示
+      // 优化仓库显示：超过2个仓库时简化显示
       let warehouseDisplay: string;
-      if (warehouseCount <= 3) {
+      if (warehouseCount <= 2) {
         warehouseDisplay = `多仓库 (${warehouseList.join(', ')})`;
       } else {
         const firstTwo = warehouseList.slice(0, 2).join(', ');
