@@ -415,23 +415,29 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
               }
               
               // 转换Supabase数据格式为统一格式
-              const salesData: Record<string, any> = {};
+              const salesDataArray: any[] = [];
               Object.keys(result.data).forEach(sku => {
                 const skuData = result.data[sku];
                 // 如果是多站点数据，使用总计
-                salesData[sku] = skuData.total || {
+                const itemData = skuData.total || {
                   orderCount: 0,
                   salesQuantity: 0,
                   orderCount30d: 0,
                   salesQuantity30d: 0,
                 };
-                // 附加站点详细信息
-                if (skuData.bySite) {
-                  salesData[sku].bySite = skuData.bySite;
-                }
+                // 添加SKU和销量字段
+                salesDataArray.push({
+                  sku,
+                  orderCount: itemData.orderCount || 0,
+                  salesQuantity: itemData.salesQuantity || 0,
+                  orderCount30d: itemData.orderCount30d || 0,
+                  salesQuantity30d: itemData.salesQuantity30d || 0,
+                  // 附加站点详细信息
+                  bySite: skuData.bySite || null
+                });
               });
-              
-              return salesData;
+
+              return { success: true, data: salesDataArray };
             } else {
               throw new Error(result.error || 'Supabase sales analysis failed');
             }
@@ -529,7 +535,16 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
               }
             }
 
-            return allSalesData;
+            // Convert to array format consistent with Supabase response
+            const salesDataArray = Object.entries(allSalesData).map(([sku, data]: [string, any]) => ({
+              sku,
+              orderCount: data.orderCount || 0,
+              salesQuantity: data.salesQuantity || 0,
+              orderCount30d: data.orderCount30d || 0,
+              salesQuantity30d: data.salesQuantity30d || 0
+            }));
+
+            return { success: true, data: salesDataArray };
           }
 
         } catch (error: any) {

@@ -99,6 +99,7 @@ interface InventoryStore {
     isMergedMode: boolean;
     hideZeroStock: boolean;
     hideNormalStatus: boolean;
+    showNeedSync: boolean;  // 新增：只显示需要同步的产品
     categoryFilter: string;  // 保留单个品类筛选以兼容
     categoryFilters: string[];  // 新增：多个品类筛选
     skuFilter: string;
@@ -177,6 +178,7 @@ export const useInventoryStore = create<InventoryStore>()(
         isMergedMode: true,
         hideZeroStock: false,
         hideNormalStatus: false,
+        showNeedSync: false,
         categoryFilter: '全部',
         categoryFilters: [],  // 新增：多个品类筛选
         skuFilter: '',
@@ -241,9 +243,23 @@ export const useInventoryStore = create<InventoryStore>()(
       // 工具函数
       updateInventoryItem: (sku, updates) => {
         const { inventoryData } = get();
-        const updatedData = inventoryData.map(item => 
-          item.产品代码 === sku ? { ...item, ...updates } : item
-        );
+        const updatedData = inventoryData.map(item => {
+          if (item.产品代码 === sku) {
+            // 如果更新包含multiSiteProductData，合并而不是替换
+            if (updates.multiSiteProductData && item.multiSiteProductData) {
+              return {
+                ...item,
+                ...updates,
+                multiSiteProductData: {
+                  ...item.multiSiteProductData,
+                  ...updates.multiSiteProductData
+                }
+              };
+            }
+            return { ...item, ...updates };
+          }
+          return item;
+        });
         set({ inventoryData: updatedData });
       },
       

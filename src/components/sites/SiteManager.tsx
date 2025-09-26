@@ -9,13 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Globe, 
-  Plus, 
-  Trash2, 
-  Edit, 
-  CheckCircle, 
-  XCircle, 
+import {
+  Globe,
+  Plus,
+  Trash2,
+  Edit,
+  CheckCircle,
+  XCircle,
   Loader2,
   RefreshCw,
   Eye,
@@ -52,7 +52,8 @@ export function SiteManager() {
   const [selectedVerifySite, setSelectedVerifySite] = useState<any>(null);
   const [activeSyncTask, setActiveSyncTask] = useState<{ siteId: string; taskId: string } | null>(null);
   const [showQueueMonitor, setShowQueueMonitor] = useState(false);
-  
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+
   // Form state
   const [formData, setFormData] = useState({
     name: '',
@@ -210,6 +211,91 @@ export function SiteManager() {
     }
   };
 
+  const handleSyncAllSites = async () => {
+    // 防止重复点击
+    if (isSyncingAll) {
+      toast.warning('请等待当前操作完成');
+      return;
+    }
+
+    // 获取启用的站点数量
+    const enabledSites = sites.filter(s => s.enabled);
+
+    if (enabledSites.length === 0) {
+      toast.error('没有启用的站点');
+      return;
+    }
+
+    // 确认对话框
+    const confirmed = confirm(
+      `确认为所有 ${enabledSites.length} 个启用的站点创建增量同步任务？\n\n` +
+      '这将同步每个站点最近更新的订单和产品数据。'
+    );
+
+    if (!confirmed) return;
+
+    setIsSyncingAll(true);
+
+    try {
+      const response = await fetch('/api/sync/all-sites/incremental', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          priority: 4
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.status === 409) {
+        // 已有批量任务在进行中
+        toast.warning(data.error || '已有批量同步任务正在进行中');
+        setShowQueueMonitor(true); // 显示队列监控查看进度
+        setIsSyncingAll(false);
+        return;
+      }
+
+      if (data.success) {
+        toast.success(data.message || '批量同步任务已创建', { duration: 3000 });
+
+        // 自动触发批量处理以加速执行
+        const batchProcessResponse = await fetch('/api/sync/queue/process-batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            batchId: data.batchId,
+            maxTasks: 10 // 一次处理10个任务
+          })
+        });
+
+        if (batchProcessResponse.ok) {
+          const processResult = await batchProcessResponse.json();
+          if (processResult.processed > 0) {
+            toast.success(`已开始批量处理 ${processResult.processed} 个任务`);
+          }
+        }
+
+        // 显示任务队列监控
+        setShowQueueMonitor(true);
+
+        // 刷新站点列表
+        fetchSites();
+      } else {
+        toast.error(data.error || '创建批量同步任务失败');
+      }
+    } catch (error) {
+      console.error('Bulk sync failed:', error);
+      toast.error('批量同步失败');
+    } finally {
+      // 延迟重置状态，避免用户快速重复点击
+      setTimeout(() => {
+        setIsSyncingAll(false);
+      }, 2000);
+    }
+  };
+
   const handleIncrementalSync = async (site: any, type: 'orders' | 'products' | 'both') => {
     setSyncingSiteId(site.id);
     
@@ -306,12 +392,12 @@ export function SiteManager() {
       
       {/* Sync Progress Display */}
       {activeSyncTask && (
-        <SyncProgress 
-          taskId={activeSyncTask.taskId} 
+        <SyncProgress
+          taskId={activeSyncTask.taskId}
           onComplete={handleSyncComplete}
         />
       )}
-      
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -325,13 +411,26 @@ export function SiteManager() {
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button 
-                onClick={() => setShowQueueMonitor(!showQueueMonitor)} 
-                size="sm" 
+              <Button
+                onClick={() => setShowQueueMonitor(!showQueueMonitor)}
+                size="sm"
                 variant={showQueueMonitor ? "default" : "outline"}
               >
                 <Database className="h-4 w-4 mr-1" />
                 任务队列
+              </Button>
+              <Button
+                onClick={handleSyncAllSites}
+                size="sm"
+                variant="outline"
+                disabled={isSyncingAll || sites.filter(s => s.enabled).length === 0}
+              >
+                {isSyncingAll ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                )}
+                增量同步所有站点
               </Button>
               <Button onClick={() => fetchSites()} size="sm" variant="outline">
                 <RefreshCw className="h-4 w-4 mr-1" />

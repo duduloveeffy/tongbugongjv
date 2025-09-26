@@ -36,6 +36,8 @@ interface WooCommerceOrder {
   transaction_id: string;
   customer_id: number;
   customer_note: string;
+  customer_ip_address: string;
+  customer_user_agent: string;
   billing: {
     first_name: string;
     last_name: string;
@@ -64,6 +66,7 @@ interface WooCommerceOrder {
   date_modified: string;
   date_completed: string | null;
   date_paid: string | null;
+  date_paid_gmt: string | null;
   meta_data: any[];
   line_items: OrderItem[];
   refunds: any[];
@@ -486,6 +489,66 @@ function safeParseInt(value: any, defaultValue: number | null = null, max = 2147
   return Math.min(Math.max(parsed, -max), max);
 }
 
+// Helper function to extract order attribution data from meta_data
+function extractAttributionData(metaData: any[]) {
+  const attribution: any = {
+    origin: null,
+    source_type: null,
+    source: null,
+    medium: null,
+    campaign: null,
+    device_type: null,
+    session_page_views: null,
+    utm_source: null,
+    utm_medium: null,
+    utm_campaign: null,
+    utm_content: null,
+    utm_term: null,
+    referrer: null,
+  };
+
+  if (!metaData || !Array.isArray(metaData)) {
+    return attribution;
+  }
+
+  metaData.forEach(meta => {
+    const key = meta.key?.toLowerCase() || '';
+    const value = meta.value;
+
+    // WooCommerce Order Attribution fields
+    if (key === '_wc_order_attribution_source_type') attribution.source_type = value;
+    if (key === '_wc_order_attribution_source') attribution.source = value;
+    if (key === '_wc_order_attribution_medium') attribution.medium = value;
+    if (key === '_wc_order_attribution_campaign') attribution.campaign = value;
+    if (key === '_wc_order_attribution_device_type') attribution.device_type = value;
+    if (key === '_wc_order_attribution_session_pages') attribution.session_page_views = parseInt(value) || null;
+    if (key === '_wc_order_attribution_referrer') attribution.referrer = value;
+
+    // UTM parameters
+    if (key === '_wc_order_attribution_utm_source' || key === 'utm_source') attribution.utm_source = value;
+    if (key === '_wc_order_attribution_utm_medium' || key === 'utm_medium') attribution.utm_medium = value;
+    if (key === '_wc_order_attribution_utm_campaign' || key === 'utm_campaign') attribution.utm_campaign = value;
+    if (key === '_wc_order_attribution_utm_content' || key === 'utm_content') attribution.utm_content = value;
+    if (key === '_wc_order_attribution_utm_term' || key === 'utm_term') attribution.utm_term = value;
+
+    // Legacy or custom attribution fields
+    if (key === 'origin' || key === '_origin') attribution.origin = value;
+  });
+
+  // Build origin string if not directly provided
+  if (!attribution.origin && attribution.source) {
+    if (attribution.source_type === 'organic' && attribution.source) {
+      attribution.origin = `Organic: ${attribution.source}`;
+    } else if (attribution.source_type === 'paid' && attribution.source) {
+      attribution.origin = `Paid: ${attribution.source}`;
+    } else if (attribution.source_type) {
+      attribution.origin = `${attribution.source_type}: ${attribution.source || 'Unknown'}`;
+    }
+  }
+
+  return attribution;
+}
+
 // Process a batch of orders
 async function processOrderBatch(
   supabase: any,
@@ -504,17 +567,47 @@ async function processOrderBatch(
     console.log(`Removed ${orders.length - uniqueOrders.length} duplicate orders in batch`);
   }
   
-  // Prepare orders for insertion
-  const ordersToInsert = uniqueOrders.map(order => ({
+  // Track customer emails for history update
+  const customerEmails = new Set<string>();
+
+  // Prepare orders for insertion with enhanced fields
+  const ordersToInsert = uniqueOrders.map(order => {
+    const attribution = extractAttributionData(order.meta_data);
+    const customerEmail = order.billing?.email || null;
+
+    if (customerEmail) {
+      customerEmails.add(customerEmail);
+    }
+
+    // Determine payment status
+    const isPaid = !!order.date_paid || ['completed', 'processing'].includes(order.status);
+    const paymentStatus = isPaid ? 'paid' :
+      order.status === 'pending' ? 'pending' :
+      order.status === 'failed' ? 'failed' :
+      order.status === 'refunded' ? 'refunded' :
+      order.status === 'cancelled' ? 'cancelled' : 'unknown';
+
+    return {
     site_id: siteId,
     order_id: order.id,
     order_number: order.number,
     order_key: order.order_key,
     status: order.status,
     currency: order.currency,
+
+    // Payment information
     payment_method: order.payment_method,
     payment_method_title: order.payment_method_title,
     transaction_id: order.transaction_id,
+    payment_date: order.date_paid,
+    payment_date_gmt: order.date_paid_gmt || null,
+    payment_status: paymentStatus,
+    is_paid: isPaid,
+    paid_via_credit_card: ['stripe', 'square', 'paypal', 'authorize_net'].includes(order.payment_method),
+
+    // Customer IP and User Agent
+    customer_ip_address: order.customer_ip_address || null,
+    customer_user_agent: order.customer_user_agent || null,
     total: safeParseFloat(order.total),
     subtotal: safeParseFloat(order.subtotal),
     total_tax: safeParseFloat(order.total_tax),
@@ -554,10 +647,27 @@ async function processOrderBatch(
     date_modified: order.date_modified || order.date_created,
     date_completed: order.date_completed || null,
     date_paid: order.date_paid || null,
+
+    // Order Attribution
+    attribution_origin: attribution.origin,
+    attribution_source_type: attribution.source_type,
+    attribution_source: attribution.source,
+    attribution_medium: attribution.medium,
+    attribution_campaign: attribution.campaign,
+    attribution_device_type: attribution.device_type,
+    attribution_session_page_views: attribution.session_page_views,
+    attribution_utm_source: attribution.utm_source,
+    attribution_utm_medium: attribution.utm_medium,
+    attribution_utm_campaign: attribution.utm_campaign,
+    attribution_utm_content: attribution.utm_content,
+    attribution_utm_term: attribution.utm_term,
+    attribution_referrer: attribution.referrer,
+
     meta_data: order.meta_data || null,
     refunds: order.refunds || null,
     synced_at: new Date().toISOString(),
-  }));
+    };
+  });
 
   // Upsert orders
   const { data: insertedOrders, error: orderError } = await supabase
@@ -654,6 +764,15 @@ async function processOrderBatch(
   
   // Process order items
   await processOrderItems(supabase, uniqueOrders, orderIdMap, results);
+
+  // Process order notes
+  await processOrderNotes(supabase, siteId, uniqueOrders, orderIdMap);
+
+  // Update customer history
+  if (customerEmails.size > 0) {
+    await updateCustomerHistory(supabase, siteId, Array.from(customerEmails));
+  }
+
   return results;
 }
 
@@ -662,7 +781,7 @@ async function processOrderItems(supabase: any, orders: any[], orderIdMap: Map<a
 
   // Prepare order items for insertion
   const allOrderItems: any[] = [];
-  
+
   for (const order of orders) {
     const orderId = orderIdMap.get(order.id);
     if (!orderId) continue;
@@ -686,7 +805,7 @@ async function processOrderItems(supabase: any, orders: any[], orderIdMap: Map<a
         taxes: item.taxes || null,
         meta_data: item.meta_data || null,
       }));
-      
+
       allOrderItems.push(...orderItems);
     }
   }
@@ -704,6 +823,75 @@ async function processOrderItems(supabase: any, orders: any[], orderIdMap: Map<a
       results.errors.push(`Order items error: ${itemError.message}`);
     } else {
       results.syncedItems += allOrderItems.length;
+    }
+  }
+}
+
+// Process order notes
+async function processOrderNotes(
+  supabase: any,
+  siteId: string,
+  orders: WooCommerceOrder[],
+  orderIdMap: Map<number, string>
+) {
+  const allNotes: any[] = [];
+
+  for (const order of orders) {
+    const orderId = orderIdMap.get(order.id);
+    if (!orderId) continue;
+
+    // Add customer note if exists
+    if (order.customer_note) {
+      allNotes.push({
+        order_id: orderId,
+        site_id: siteId,
+        wc_order_id: order.id,
+        note_id: 0, // Customer note doesn't have a specific ID
+        note: order.customer_note,
+        note_type: 'customer',
+        customer_note: true,
+        added_by: 'customer',
+        date_created: order.date_created,
+      });
+    }
+
+    // In a production implementation, you would fetch order notes from WooCommerce API
+    // For now, we'll just save the customer note from the order data
+  }
+
+  if (allNotes.length > 0) {
+    const { error } = await supabase
+      .from('wc_order_notes')
+      .upsert(allNotes, {
+        onConflict: 'site_id,wc_order_id,note_id',
+      });
+
+    if (error) {
+      console.error('Failed to sync order notes:', error);
+    }
+  }
+}
+
+// Update customer history
+async function updateCustomerHistory(
+  supabase: any,
+  siteId: string,
+  customerEmails: string[]
+) {
+  for (const email of customerEmails) {
+    try {
+      // Call the database function to update customer history
+      const { error } = await supabase
+        .rpc('update_customer_history_stats', {
+          p_site_id: siteId,
+          p_customer_email: email,
+        });
+
+      if (error) {
+        console.error(`Failed to update customer history for ${email}:`, error);
+      }
+    } catch (error) {
+      console.error(`Error updating customer history for ${email}:`, error);
     }
   }
 }

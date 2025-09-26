@@ -26,15 +26,18 @@ const SalesTrendChart = lazy(() =>
 
 // 导入简单趋势指示器
 import { SimpleTrendIndicator } from '@/components/sales/SimpleTrendIndicator';
+import { MultiSiteStatusBadge } from './MultiSiteStatusBadge';
 
 interface InventoryTableProps {
   data: InventoryItem[];
   selectedSkusForSync: Set<string>;
   syncingSkus: Set<string>;
   onSkuSelectionChange: (sku: string, checked: boolean) => void;
-  onSyncSku: (sku: string, shouldBeInStock: boolean) => void;
+  onSyncSku: (sku: string, shouldBeInStock: boolean, siteId?: string) => void;
   isProductDetectionEnabled: boolean;
   isSalesDetectionEnabled: boolean;
+  selectedSiteId?: string | null;
+  selectedSiteName?: string; // 新增：站点名称
 }
 
 export function InventoryTable({
@@ -45,6 +48,8 @@ export function InventoryTable({
   onSyncSku,
   isProductDetectionEnabled,
   isSalesDetectionEnabled,
+  selectedSiteId,
+  selectedSiteName,
 }: InventoryTableProps) {
   const { sortConfig, setSortConfig } = useInventoryStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -212,6 +217,7 @@ export function InventoryTable({
                 <>
                   <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">上架状态</th>
                   <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">库存状态</th>
+                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">多站点</th>
                   <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">同步操作</th>
                 </>
               )}
@@ -396,19 +402,32 @@ export function InventoryTable({
                         )}
                       </td>
                       <td className="whitespace-nowrap p-2 align-middle">
-                        <Button
-                          size="sm"
-                          disabled={isSyncing || !item.productData}
-                          variant={getSyncButtonColor(isOnline, netStock, item.productData?.stockStatus) as any}
-                          onClick={() => {
-                            // 根据当前库存状态切换：如果当前是有货(instock)则切换为无货，反之亦然
-                            const currentStockStatus = item.productData?.stockStatus || 'outofstock';
-                            const shouldBeInStock = currentStockStatus === 'outofstock';
-                            onSyncSku(item.产品代码, shouldBeInStock);
-                          }}
-                        >
-                          {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock, item.productData?.stockStatus)}
-                        </Button>
+                        <MultiSiteStatusBadge multiSiteData={item.multiSiteProductData} />
+                      </td>
+                      <td className="whitespace-nowrap p-2 align-middle">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                disabled={isSyncing || !item.productData}
+                                variant={getSyncButtonColor(isOnline, netStock, item.productData?.stockStatus) as any}
+                                onClick={() => {
+                                  // 根据当前库存状态切换：如果当前是有货(instock)则切换为无货，反之亦然
+                                  const currentStockStatus = item.productData?.stockStatus || 'outofstock';
+                                  const shouldBeInStock = currentStockStatus === 'outofstock';
+                                  onSyncSku(item.产品代码, shouldBeInStock, selectedSiteId || undefined);
+                                }}
+                              >
+                                {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock, item.productData?.stockStatus)}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>同步到: {selectedSiteName || '默认站点'}</p>
+                              {selectedSiteId && <p className="text-xs text-muted-foreground">ID: {selectedSiteId}</p>}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </td>
                     </>
                   )}

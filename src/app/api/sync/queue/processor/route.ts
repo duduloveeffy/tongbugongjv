@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       .select('id')
       .eq('status', 'processing');
     
-    const MAX_CONCURRENT = 2; // 最大并发数
+    const MAX_CONCURRENT = 5; // 增加最大并发数以加快批量同步
     if (processingTasks && processingTasks.length >= MAX_CONCURRENT) {
       return NextResponse.json({
         message: 'Max concurrent tasks reached',
@@ -89,6 +89,14 @@ export async function POST(request: NextRequest) {
           throw new Error(`Unknown task type: ${nextTask.task_type}`);
       }
 
+      // 更新站点的最后同步时间
+      if (nextTask.site?.id) {
+        await supabase
+          .from('wc_sites')
+          .update({ last_sync_at: new Date().toISOString() })
+          .eq('id', nextTask.site.id);
+      }
+
       // 更新任务为完成状态
       await supabase
         .from('sync_tasks')
@@ -116,7 +124,15 @@ export async function POST(request: NextRequest) {
 
     } catch (syncError: any) {
       console.error('Sync execution error:', syncError);
-      
+
+      // 即使失败也更新站点的最后同步时间（记录尝试时间）
+      if (nextTask.site?.id) {
+        await supabase
+          .from('wc_sites')
+          .update({ last_sync_at: new Date().toISOString() })
+          .eq('id', nextTask.site.id);
+      }
+
       // 更新任务为失败状态
       await supabase
         .from('sync_tasks')
@@ -272,11 +288,13 @@ async function executeSkuBatchSync(supabase: any, task: any) {
 
 // 同步订单（调用现有API）
 async function syncOrders(site: any, mode: string, progressCallback?: (progress: number) => Promise<void>) {
-  // 构建完整的 URL
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3001');
-  
-  const response = await fetch(`${baseUrl}/api/sync/orders/incremental`, {
+  // 导入处理函数
+  const { POST: syncOrdersHandler } = await import('@/app/api/sync/orders/incremental/route');
+
+  console.log(`Syncing orders for site ${site.id} in ${mode} mode`);
+
+  // 创建模拟的 NextRequest 对象（URL 只是占位符，不会实际访问）
+  const mockRequest = new Request('http://internal/api/sync/orders/incremental', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -288,7 +306,14 @@ async function syncOrders(site: any, mode: string, progressCallback?: (progress:
     })
   });
 
+  // 直接调用处理函数
+  const response = await syncOrdersHandler(mockRequest as any);
+
+  console.log(`Order sync response status: ${response.status}`);
+
   if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Order sync error: ${response.status} - ${errorText}`);
     throw new Error(`Order sync failed: ${response.statusText}`);
   }
 
@@ -301,11 +326,13 @@ async function syncOrders(site: any, mode: string, progressCallback?: (progress:
 
 // 同步产品（调用现有API）
 async function syncProducts(site: any, mode: string, progressCallback?: (progress: number) => Promise<void>) {
-  // 构建完整的 URL
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3001');
-  
-  const response = await fetch(`${baseUrl}/api/sync/products/incremental`, {
+  // 导入处理函数
+  const { POST: syncProductsHandler } = await import('@/app/api/sync/products/incremental/route');
+
+  console.log(`Syncing products for site ${site.id} in ${mode} mode`);
+
+  // 创建模拟的 NextRequest 对象（URL 只是占位符，不会实际访问）
+  const mockRequest = new Request('http://internal/api/sync/products/incremental', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -317,7 +344,14 @@ async function syncProducts(site: any, mode: string, progressCallback?: (progres
     })
   });
 
+  // 直接调用处理函数
+  const response = await syncProductsHandler(mockRequest as any);
+
+  console.log(`Product sync response status: ${response.status}`);
+
   if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Product sync error: ${response.status} - ${errorText}`);
     throw new Error(`Product sync failed: ${response.statusText}`);
   }
 

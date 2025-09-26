@@ -51,12 +51,36 @@ export interface InventoryItem {
     orderCount30d: number;
     salesQuantity30d: number;
   };
-  // 上架检测相关字段
+  // 上架检测相关字段（单站点）
   productData?: {
     isOnline: boolean;
     status: string;
     stockStatus: string;
     productUrl?: string;
+  };
+  // 多站点产品数据
+  multiSiteProductData?: {
+    [siteId: string]: {
+      siteName?: string;
+      isOnline: boolean;
+      status: string;
+      stockStatus: string;
+      stockQuantity?: number;
+      manageStock?: boolean;
+      productUrl?: string;
+      lastSyncAt?: string;
+      syncResult?: 'success' | 'failed' | 'skipped';
+      syncMessage?: string;
+    };
+  };
+  // 建议的同步操作
+  suggestedSync?: {
+    [siteId: string]: {
+      shouldSync: boolean;
+      suggestedStatus: string;
+      suggestedQuantity?: number;
+      matchedRule?: string;
+    };
   };
   // 在途数量字段
   在途数量: number;
@@ -675,20 +699,21 @@ export const sortInventoryData = (
 export const filterInventoryData = (
   data: InventoryItem[],
   filters: {
-    skuFilters: string;
-    warehouseFilter: string;
+    skuFilters?: string;
+    warehouseFilter?: string;
     categoryFilter?: string;  // 保留单个品类筛选以兼容
     categoryFilters?: string[];  // 新增：多个品类筛选
     hideZeroStock?: boolean;
     hideNormalStatus?: boolean;
+    showNeedSync?: boolean;  // 新增：只显示需要同步的产品
     excludeSkuPrefixes?: string;
   }
 ): InventoryItem[] => {
-  const { skuFilters, warehouseFilter, categoryFilter, categoryFilters, hideZeroStock = false, hideNormalStatus = false, excludeSkuPrefixes = '' } = filters;
+  const { skuFilters = '', warehouseFilter = '', categoryFilter, categoryFilters, hideZeroStock = false, hideNormalStatus = false, showNeedSync = false, excludeSkuPrefixes = '' } = filters;
   
   return data.filter(item => {
     // SKU前缀排除筛选（优先级最高）
-    if (excludeSkuPrefixes.trim()) {
+    if (excludeSkuPrefixes && excludeSkuPrefixes.trim()) {
       const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
       const shouldExclude = excludeList.some(prefix => 
         item.产品代码.toLowerCase().startsWith(prefix.toLowerCase())
@@ -697,18 +722,18 @@ export const filterInventoryData = (
     }
     
     // SKU筛选
-    if (skuFilters.trim()) {
+    if (skuFilters && skuFilters.trim()) {
       const skuList = skuFilters.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
-      const matchesSku = skuList.some(sku => 
+      const matchesSku = skuList.some(sku =>
         item.产品代码.toLowerCase().includes(sku.toLowerCase()) ||
         item.产品名称.toLowerCase().includes(sku.toLowerCase()) ||
         item.产品英文名称.toLowerCase().includes(sku.toLowerCase())
       );
       if (!matchesSku) return false;
     }
-    
+
     // 仓库筛选
-    if (warehouseFilter.trim()) {
+    if (warehouseFilter && warehouseFilter.trim()) {
       if (!item.仓库.toLowerCase().includes(warehouseFilter.toLowerCase())) {
         return false;
       }
@@ -743,14 +768,29 @@ export const filterInventoryData = (
     if (hideNormalStatus && item.productData) {
       const netStock = calculateNetStock(item);
       const isOnline = item.productData.isOnline;
-      
+
       // 状态正常的情况：
       // 1. 有库存且已上架
       // 2. 无库存且未上架
       const isNormalStatus = (netStock > 0 && isOnline) || (netStock <= 0 && !isOnline);
       if (isNormalStatus) return false;
     }
-    
+
+    // 只显示需要同步的产品（建议同步）
+    if (showNeedSync && item.productData) {
+      const netStock = calculateNetStock(item);
+      const stockStatus = item.productData.stockStatus;
+
+      // 需要同步的情况：
+      // 1. 显示有货但净库存≤0 (stockStatus === 'instock' 且 netStock <= 0) → 应该同步为无货（红色按钮）
+      // 2. 显示无货但净库存>0 (stockStatus === 'outofstock' 且 netStock > 0) → 应该同步为有货（蓝色按钮）
+      const needSync =
+        (stockStatus === 'instock' && netStock <= 0) ||      // 红色按钮情况：有货但实际无库存
+        (stockStatus === 'outofstock' && netStock > 0);      // 蓝色按钮情况：无货但实际有库存
+
+      if (!needSync) return false;
+    }
+
     return true;
   });
 };

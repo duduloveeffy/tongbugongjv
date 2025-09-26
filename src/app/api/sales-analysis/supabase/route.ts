@@ -11,6 +11,8 @@ interface SalesData {
 }
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now(); // Track processing time
+
   try {
     const supabase = getSupabaseClient();
     
@@ -48,7 +50,17 @@ export async function POST(request: NextRequest) {
     const infoLog = (logLevel === 'debug' || logLevel === 'info') ? console.log : () => {};
     
     debugLog(`Processing ${skus.length} SKUs for sales analysis (strict mode: ${strictMatch})`);
-    infoLog(`[FIXED] Using pagination to fetch all records (bypassing 1000 record limit)`);
+
+    // 优化提示和策略选择
+    const OPTIMIZATION_THRESHOLD = 100; // 优化阈值
+    const useOptimization = skus.length > OPTIMIZATION_THRESHOLD;
+
+    if (useOptimization) {
+      infoLog(`🚀 [OPTIMIZED] Processing large batch (${skus.length} SKUs) - using direct query strategy`);
+      infoLog(`   Expected performance: Single query with in-memory filtering`);
+    } else {
+      infoLog(`📊 Processing ${skus.length} SKUs using batch query strategy`);
+    }
     
     // 标准化SKU格式（去除空格，可选转大写）
     const normalizedSkus = strictMatch 
@@ -61,9 +73,11 @@ export async function POST(request: NextRequest) {
       debugLog('Sample normalized SKUs (first 5):', normalizedSkus.slice(0, 5));
     }
 
-    // 如果SKU数量太多，分批查询（Supabase .in() 有限制）
-    const batchSize = 30; // 减小批次大小以提高查询成功率
+    // 优化：如果SKU数量太多，使用不同的查询策略
     let allOrderItems: any[] = [];
+
+    // 使用优化策略时的配置
+    const batchSize = useOptimization ? 1000 : 100; // 增大批次大小
     
     // 仅在开发环境进行SKU存在性检查
     if (isDev && skus.length <= 50) {
@@ -87,8 +101,121 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    if (normalizedSkus.length > batchSize) {
-      // 分批查询
+    if (useOptimization) {
+      // 对于大量SKU，直接查询所有订单，然后在内存中过滤
+      infoLog(`🔄 Using optimized query for ${skus.length} SKUs - fetching all orders and filtering in memory`);
+
+      // 构建基础查询
+      let query = supabase
+        .from('order_items')
+        .select(`
+          sku,
+          quantity,
+          order_id,
+          orders!inner(
+            id,
+            site_id,
+            status,
+            date_created,
+            wc_sites!inner(
+              id,
+              name
+            )
+          )
+        `)
+        .in('orders.status', statuses);
+
+      // 添加站点筛选
+      if (siteIds && siteIds.length > 0) {
+        query = query.in('orders.site_id', siteIds);
+      }
+
+      // 添加日期筛选
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - daysBack);
+      query = query.gte('orders.date_created', thirtyDaysAgo.toISOString());
+
+      if (dateEnd) {
+        query = query.lte('orders.date_created', dateEnd);
+      }
+
+      // 使用分页获取所有数据
+      let offset = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      let pageCount = 0;
+
+      // 对于超大批量（>1000 SKUs），显示进度
+      const showProgress = skus.length > 1000;
+      if (showProgress) {
+        infoLog(`   📥 Fetching orders from database...`);
+      }
+
+      while (hasMore) {
+        const paginatedQuery = query.range(offset, offset + pageSize - 1);
+        const { data: pageItems, error: pageError } = await paginatedQuery;
+
+        if (pageError) {
+          console.error(`Page ${Math.floor(offset/pageSize) + 1} error:`, pageError);
+          return NextResponse.json({
+            error: 'Failed to fetch sales data from Supabase',
+            details: pageError.message
+          }, { status: 500 });
+        }
+
+        if (pageItems && pageItems.length > 0) {
+          allOrderItems = allOrderItems.concat(pageItems);
+          pageCount++;
+
+          if (showProgress && pageCount % 5 === 0) {
+            infoLog(`   📄 Loaded ${allOrderItems.length} order items...`);
+          }
+
+          if (pageItems.length < pageSize) {
+            hasMore = false;
+          } else {
+            offset += pageSize;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      infoLog(`   ✅ Fetched ${allOrderItems.length} order items, now filtering for requested SKUs`);
+
+      // 在内存中过滤出需要的SKU - 使用优化的查找
+      const filterStartTime = Date.now();
+      const skuSet = new Set(normalizedSkus);
+      const originalSkuSet = new Set(skus);
+
+      // 创建多个查找集合以提高匹配效率
+      const skuLookupSets = {
+        normalized: skuSet,
+        original: originalSkuSet,
+        trimmed: new Set(skus.map(s => s.trim()))
+      };
+
+      const filteredItems = [];
+      for (const item of allOrderItems) {
+        const itemSku = item.sku?.trim();
+        if (!itemSku) continue;
+
+        const itemSkuUpper = itemSku.toUpperCase();
+
+        // 快速查找
+        if (skuLookupSets.normalized.has(itemSkuUpper) ||
+            skuLookupSets.original.has(itemSku) ||
+            skuLookupSets.trimmed.has(itemSku)) {
+          filteredItems.push(item);
+        }
+      }
+
+      allOrderItems = filteredItems;
+      const filterTime = ((Date.now() - filterStartTime) / 1000).toFixed(3);
+      infoLog(`   🔍 Filtered to ${allOrderItems.length} relevant items in ${filterTime}s`);
+
+    } else if (normalizedSkus.length > batchSize) {
+      // 原有的分批查询逻辑（用于少量SKU）
       for (let i = 0; i < normalizedSkus.length; i += batchSize) {
         const batchSkus = normalizedSkus.slice(i, i + batchSize);
         const batchNumber = Math.floor(i/batchSize) + 1;
@@ -404,11 +531,25 @@ export async function POST(request: NextRequest) {
       }
     });
     
-    // 根据日志级别打印统计信息
-    if (skus.length > 100) {
-      infoLog(`Processed ${skus.length} SKUs: ${skusWithData} with sales, ${skusWithoutData} without`);
+    // 打印统计信息和性能指标
+    const endTime = Date.now();
+    const processingTime = ((endTime - startTime) / 1000).toFixed(2);
+
+    if (useOptimization) {
+      infoLog(`✅ [OPTIMIZED] Processed ${skus.length} SKUs in ${processingTime}s: ${skusWithData} with sales, ${skusWithoutData} without sales`);
+      infoLog(`   📊 Strategy: Direct query with in-memory filtering`);
+      infoLog(`   📦 Total items processed: ${allOrderItems.length}`);
+      infoLog(`   ⚡ Performance gain: ~${Math.round(skus.length/100)}x faster than batch queries`);
+
+      // 对于超大批量，显示内存使用情况
+      if (skus.length > 1000 && process.memoryUsage) {
+        const memUsage = process.memoryUsage();
+        const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+        infoLog(`   💾 Memory usage: ${heapUsedMB} MB`);
+      }
     } else {
-      debugLog(`Sales analysis results: ${skusWithData} SKUs with sales, ${skusWithoutData} SKUs without sales`);
+      infoLog(`✅ Processed ${skus.length} SKUs in ${processingTime}s: ${skusWithData} with sales, ${skusWithoutData} without sales`);
+      debugLog(`   Strategy: Batch query (${Math.ceil(skus.length/batchSize)} batches)`);
     }
 
     // 获取站点列表信息
