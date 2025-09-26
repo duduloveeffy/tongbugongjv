@@ -1,10 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseClient } from '@/lib/supabase';
 
 // 同步规则接口
 interface SyncRule {
@@ -100,8 +95,10 @@ async function syncToSite(
     let siteUrl = site.siteUrl;
     let apiKey = site.apiKey;
     let apiSecret = site.apiSecret;
-    
-    if (site.siteId && (!siteUrl || !apiKey || !apiSecret)) {
+
+    const supabase = getSupabaseClient();
+
+    if (site.siteId && (!siteUrl || !apiKey || !apiSecret) && supabase) {
       const { data: siteData, error } = await supabase
         .from('wc_sites')
         .select('url, api_key, api_secret')
@@ -415,10 +412,13 @@ export async function POST(request: NextRequest) {
     }));
     
     // 批量插入日志（忽略错误）
-    try {
-      await supabase.from('sync_logs').insert(syncLogs);
-    } catch (error) {
-      console.error('Failed to save sync logs:', error);
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        await supabase.from('sync_logs').insert(syncLogs);
+      } catch (error) {
+        console.error('Failed to save sync logs:', error);
+      }
     }
     
     // 统计结果

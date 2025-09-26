@@ -1,10 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseClient } from '@/lib/supabase';
 
 // 站点产品状态
 interface SiteProductStatus {
@@ -36,6 +31,17 @@ async function detectProductOnSite(
   siteId: string
 ): Promise<SiteProductStatus> {
   try {
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      return {
+        siteId,
+        exists: false,
+        lastChecked: new Date().toISOString(),
+        error: 'Supabase not configured'
+      };
+    }
+
     // 从数据库获取站点信息
     const { data: siteData, error: siteError } = await supabase
       .from('wc_sites')
