@@ -13,9 +13,10 @@ export async function GET() {
       }, { status: 200 });
     }
 
+    // SECURITY: Never expose API keys - use safe view or select specific fields
     const { data: sites, error } = await supabase
       .from('wc_sites')
-      .select('*')
+      .select('id, name, url, enabled, created_at, updated_at, last_sync_at')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -78,17 +79,21 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // SECURITY WARNING: API keys should be encrypted before storage
+    // This is a temporary implementation - use the protected endpoint instead
+    console.warn('⚠️ WARNING: Using unprotected API endpoint. API keys will be stored in plain text!');
+
     // Insert site into database
     const { data: site, error } = await supabase
       .from('wc_sites')
       .insert({
         name,
         url: url.replace(/\/$/, ''), // Remove trailing slash
-        api_key: apiKey,
-        api_secret: apiSecret,
+        api_key: apiKey,  // TODO: Encrypt before storing
+        api_secret: apiSecret,  // TODO: Encrypt before storing
         enabled: true,
       })
-      .select()
+      .select('id, name, url, enabled, created_at')  // Don't return API keys
       .single();
 
     if (error) {

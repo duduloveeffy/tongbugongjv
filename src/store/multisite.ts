@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { WCSite, MultiSiteSalesData } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { authFetch } from './auth';
 
 interface SyncStatus {
   status: 'idle' | 'syncing' | 'error';
@@ -60,9 +61,9 @@ export const useMultiSiteStore = create<MultiSiteStore>()(
       // Fetch all sites from Supabase
       fetchSites: async () => {
         set({ isLoadingSites: true });
-        
+
         try {
-          const response = await fetch('/api/sites');
+          const response = await authFetch('/api/sites');
           const data = await response.json();
           
           if (data.success) {
@@ -99,9 +100,8 @@ export const useMultiSiteStore = create<MultiSiteStore>()(
       // Add a new site
       addSite: async (siteData) => {
         try {
-          const response = await fetch('/api/sites', {
+          const response = await authFetch('/api/sites', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               name: siteData.name,
               url: siteData.url,
@@ -147,9 +147,8 @@ export const useMultiSiteStore = create<MultiSiteStore>()(
       // Update a site
       updateSite: async (id, updates) => {
         try {
-          const response = await fetch('/api/sites', {
+          const response = await authFetch('/api/sites', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, ...updates }),
           });
           
@@ -188,7 +187,7 @@ export const useMultiSiteStore = create<MultiSiteStore>()(
       // Delete a site
       deleteSite: async (id) => {
         try {
-          const response = await fetch(`/api/sites?id=${id}`, {
+          const response = await authFetch(`/api/sites?id=${id}`, {
             method: 'DELETE',
           });
           
@@ -225,9 +224,8 @@ export const useMultiSiteStore = create<MultiSiteStore>()(
       // Test site connection
       testSiteConnection: async (url, apiKey, apiSecret) => {
         try {
-          const response = await fetch('/api/sites/test', {
+          const response = await authFetch('/api/sites/test', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, apiKey, apiSecret }),
           });
           
@@ -297,9 +295,8 @@ export const useMultiSiteStore = create<MultiSiteStore>()(
         set({ isGlobalSyncing: true, globalSyncMessage: '正在获取销量数据...' });
         
         try {
-          const response = await fetch('/api/sales/multi-site', {
+          const response = await authFetch('/api/sales/multi-site', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               skus,
               siteIds: activeSiteIds,
@@ -355,10 +352,9 @@ export const useMultiSiteStore = create<MultiSiteStore>()(
         
         try {
           // Create sync tasks for each site
-          const promises = siteIds.map(siteId => 
-            fetch('/api/sales/sync', {
+          const promises = siteIds.map(siteId =>
+            authFetch('/api/sales/sync', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ siteId, skus }),
             })
           );

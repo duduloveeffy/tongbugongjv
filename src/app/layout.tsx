@@ -3,6 +3,7 @@ import "@/styles/globals.css";
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { Toaster } from "sonner";
+import AuthProvider from "@/components/auth/AuthProvider";
 
 export const metadata: Metadata = {
 	title: "ERP数据分析系统 - 库存分析与销量检测",
@@ -25,7 +26,9 @@ export default function RootLayout({
 	return (
 		<html lang="en" className={`${geist.variable}`}>
 			<body>
-				{children}
+				<AuthProvider>
+					{children}
+				</AuthProvider>
 				<Toaster position="top-center" richColors />
 			</body>
 		</html>

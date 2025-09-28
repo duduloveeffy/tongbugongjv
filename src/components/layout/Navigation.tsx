@@ -3,6 +3,16 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Layers,
   TrendingUp,
@@ -11,7 +21,10 @@ import {
   Webhook,
   BarChart3,
   Home,
-  Package
+  Package,
+  User,
+  LogOut,
+  Shield
 } from 'lucide-react';
 
 const navigationItems = [
@@ -55,6 +68,7 @@ const navigationItems = [
 
 export function Navigation() {
   const pathname = usePathname();
+  const { user, logout } = useAuthStore();
 
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -67,28 +81,63 @@ export function Navigation() {
           </div>
 
           {/* Navigation Items */}
-          <div className="flex items-center space-x-1">
-            {navigationItems.map((item) => {
-              const isActive = pathname === item.href ||
-                            (item.href !== '/' && pathname.startsWith(item.href));
-              const Icon = item.icon;
+          <div className="flex items-center gap-4">
+            <div className="flex items-center space-x-1">
+              {navigationItems.map((item) => {
+                const isActive = pathname === item.href ||
+                              (item.href !== '/' && pathname.startsWith(item.href));
+                const Icon = item.icon;
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
-                    "hover:bg-accent hover:text-accent-foreground",
-                    isActive && "bg-accent text-accent-foreground"
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                      "hover:bg-accent hover:text-accent-foreground",
+                      isActive && "bg-accent text-accent-foreground"
+                    )}
+                    title={item.description}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="hidden md:inline">{item.name}</span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* User Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  <span className="hidden md:inline">
+                    {user?.email || 'User'}
+                  </span>
+                  {user?.role === 'admin' && (
+                    <Shield className="h-3 w-3 text-primary" />
                   )}
-                  title={item.description}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden md:inline">{item.name}</span>
-                </Link>
-              );
-            })}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>我的账户</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled>
+                  <User className="mr-2 h-4 w-4" />
+                  {user?.email || 'Unknown User'}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled>
+                  <Shield className="mr-2 h-4 w-4" />
+                  角色: {user?.role === 'admin' ? '管理员' :
+                        user?.role === 'manager' ? '经理' : '查看者'}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout} className="text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  退出登录
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
