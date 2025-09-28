@@ -13,10 +13,11 @@ export async function GET() {
       }, { status: 200 });
     }
 
-    // SECURITY: Never expose API keys - use safe view or select specific fields
+    // Include API keys for authenticated users to enable product detection
+    // TODO: In production, consider using a proxy approach instead
     const { data: sites, error } = await supabase
       .from('wc_sites')
-      .select('id, name, url, enabled, created_at, updated_at, last_sync_at')
+      .select('id, name, url, api_key, api_secret, enabled, created_at, updated_at, last_sync_at')
       .order('created_at', { ascending: false });
 
     if (error) {

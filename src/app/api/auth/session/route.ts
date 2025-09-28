@@ -2,38 +2,62 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
 export async function GET(request: NextRequest) {
+  console.log('🔍 Session check requested');
+
   try {
     // Check Supabase configuration
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error('❌ Supabase not configured');
       return NextResponse.json(
         { error: 'Authentication service not configured' },
         { status: 503 }
       );
     }
 
-    // Create Supabase client
+    // Create Supabase client with proper cookie handling
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       {
         cookies: {
           get(name: string) {
-            return request.cookies.get(name)?.value;
+            const value = request.cookies.get(name)?.value;
+            console.log(`  Reading cookie ${name}: ${value ? 'found' : 'not found'}`);
+            return value;
           },
           set(name: string, value: string, options: CookieOptions) {
-            // We don't need to set cookies for GET request
+            // Session check doesn't need to set cookies
+            console.log(`  Supabase trying to set cookie: ${name}`);
           },
           remove(name: string, options: CookieOptions) {
-            // We don't need to remove cookies for GET request
+            // Session check doesn't need to remove cookies
+            console.log(`  Supabase trying to remove cookie: ${name}`);
           },
         },
       }
     );
 
     // Get current session
+    // Log all cookies for debugging
+    const allCookies = request.cookies.getAll();
+    console.log('🍪 All cookies:', allCookies.map(c => c.name));
+
+    // Check for Supabase auth cookies with the correct project ID
+    const projectId = 'evcmuhykdcmyvgbyluds';
+    const authCookie = request.cookies.get(`sb-${projectId}-auth-token`);
+    console.log('🔑 Auth cookie status:', authCookie ? 'present' : 'missing');
+
     const { data: { session }, error } = await supabase.auth.getSession();
 
+    console.log('📋 Session check result:', {
+      hasSession: !!session,
+      error: error?.message || null,
+      userId: session?.user?.id || null,
+      email: session?.user?.email || null,
+    });
+
     if (error || !session) {
+      console.error('❌ No active session found');
       return NextResponse.json(
         { error: 'No active session' },
         { status: 401 }

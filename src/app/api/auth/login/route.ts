@@ -46,9 +46,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create Supabase client
-    let response = NextResponse.next();
+    // Create response first for cookie handling
+    const cookieStore = {
+      cookies: [] as Array<{ name: string; value: string; options: CookieOptions }>,
+    };
 
+    // Create Supabase client
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -58,24 +61,34 @@ export async function POST(request: NextRequest) {
             return request.cookies.get(name)?.value;
           },
           set(name: string, value: string, options: CookieOptions) {
-            request.cookies.set({ name, value, ...options });
-            response.cookies.set({ name, value, ...options });
+            // Store cookies to be set on response later
+            cookieStore.cookies.push({ name, value, options });
           },
           remove(name: string, options: CookieOptions) {
-            request.cookies.set({ name, value: '', ...options });
-            response.cookies.set({ name, value: '', ...options });
+            // Store removal cookies
+            cookieStore.cookies.push({ name, value: '', options: { ...options, maxAge: 0 } });
           },
         },
       }
     );
 
     // Attempt login
+    console.log('🔐 Login attempt for:', cleanEmail);
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
       password,
     });
 
+    console.log('🔍 Supabase auth response:', {
+      hasUser: !!data?.user,
+      hasSession: !!data?.session,
+      error: error?.message || null,
+      userId: data?.user?.id || null,
+      email: data?.user?.email || null,
+    });
+
     if (error) {
+      console.error('❌ Supabase auth error:', error);
       // Record failed attempt
       const { attempts, lockout } = await recordFailedLogin(cleanEmail);
 
@@ -107,11 +120,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (!data.user) {
+      console.error('❌ No user in response');
       return NextResponse.json(
         { error: 'Login failed' },
         { status: 401 }
       );
     }
+
+    console.log('✅ Login successful for user:', data.user.id);
 
     // Clear failed login attempts on success
     await clearFailedLoginAttempts(cleanEmail);
@@ -155,7 +171,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create response with session
-    response = NextResponse.json({
+    const responseData = {
       success: true,
       user: {
         id: data.user.id,
@@ -163,23 +179,27 @@ export async function POST(request: NextRequest) {
         role: data.user.user_metadata?.role || 'viewer',
       },
       session: data.session,
-    });
-
-    // Set session cookies
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      path: '/',
     };
 
-    if (data.session) {
-      response.cookies.set('sb-access-token', data.session.access_token, cookieOptions);
-      if (data.session.refresh_token) {
-        response.cookies.set('sb-refresh-token', data.session.refresh_token, cookieOptions);
-      }
+    console.log('📦 Sending response:', {
+      success: responseData.success,
+      userId: responseData.user.id,
+      hasSession: !!responseData.session,
+      sessionAccessToken: responseData.session?.access_token ? 'present' : 'missing',
+    });
+
+    const response = NextResponse.json(responseData);
+
+    // Apply all cookies that Supabase set during authentication
+    console.log(`🍪 Setting ${cookieStore.cookies.length} cookies from Supabase`);
+    for (const cookie of cookieStore.cookies) {
+      response.cookies.set(cookie.name, cookie.value, cookie.options);
     }
 
+    // Log what cookies Supabase wants to set
+    console.log('🔍 Cookies from Supabase:', cookieStore.cookies.map(c => c.name));
+
+    console.log('✅ Login API completed successfully');
     return response;
 
   } catch (error: any) {

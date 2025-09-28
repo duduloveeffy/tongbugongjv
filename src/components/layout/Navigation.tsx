@@ -23,8 +23,10 @@ import {
   Home,
   Package,
   User,
+  Users,
   LogOut,
-  Shield
+  Shield,
+  Settings
 } from 'lucide-react';
 
 const navigationItems = [
@@ -132,6 +134,17 @@ export function Navigation() {
                         user?.role === 'manager' ? '经理' : '查看者'}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {user?.role === 'admin' && (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin/users">
+                        <Users className="mr-2 h-4 w-4" />
+                        用户管理
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem onClick={logout} className="text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
                   退出登录
