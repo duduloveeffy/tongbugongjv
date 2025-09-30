@@ -135,6 +135,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if user already exists in our database
+    const { data: existingUser, error: checkError } = await supabase
+      .from('users')
+      .select('id, email')
+      .eq('email', email)
+      .single();
+
+    if (existingUser) {
+      return NextResponse.json(
+        { error: 'User with this email already exists' },
+        { status: 409 }
+      );
+    }
+
     // Create Supabase auth client
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       return NextResponse.json(
@@ -145,7 +159,7 @@ export async function POST(request: NextRequest) {
 
     const authClient = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       {
         cookies: {
           get: () => null,
@@ -155,43 +169,60 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Create user in Supabase Auth
-    const { data: authData, error: authError } = await authClient.auth.admin.createUser({
+    // Create user using regular signUp (doesn't require Service Role Key)
+    const { data: authData, error: authError } = await authClient.auth.signUp({
       email,
       password,
-      email_confirm: true,
+      options: {
+        emailRedirectTo: undefined, // Don't send confirmation email
+        data: {
+          role: role,
+        }
+      }
     });
 
     if (authError) {
       console.error('Failed to create auth user:', authError);
-      if (authError.message.includes('already registered')) {
+      if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
         return NextResponse.json(
           { error: 'Email already registered' },
           { status: 409 }
         );
       }
       return NextResponse.json(
-        { error: 'Failed to create user' },
+        { error: authError.message || 'Failed to create user' },
         { status: 500 }
       );
     }
 
-    // Create user record in our database
+    if (!authData.user) {
+      return NextResponse.json(
+        { error: 'Failed to create user - no user returned' },
+        { status: 500 }
+      );
+    }
+
+    // Check if the user was actually created or already existed
+    // signUp doesn't error if user exists, it just returns the existing user
+    const { data: authUserCheck } = await authClient.auth.getUser();
+
+    // Use upsert to handle the case where auth user exists but not in our users table
     const { data: newUser, error: dbError } = await supabase
       .from('users')
-      .insert({
+      .upsert({
         id: authData.user.id,
         email,
         role,
         is_active,
+      }, {
+        onConflict: 'id',
+        ignoreDuplicates: false // Update if exists
       })
       .select()
       .single();
 
     if (dbError) {
-      // Rollback: delete auth user if database insert fails
-      await authClient.auth.admin.deleteUser(authData.user.id);
-      console.error('Failed to create user record:', dbError);
+      console.error('Failed to create/update user record:', dbError);
       return NextResponse.json(
         { error: 'Failed to create user record' },
         { status: 500 }

@@ -1,5 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
+import {
+  executeIncrementalOrderSync,
+  executeIncrementalProductSync,
+  type SyncResult
+} from '@/lib/sync-functions';
 
 // 批量处理队列任务 - 专门用于批量同步
 export async function POST(request: NextRequest) {
@@ -13,12 +18,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { batchId, maxTasks = 10 } = body;
+    const { batchId, maxTasks = 10 } = body; // 移除 concurrency 参数
 
-    // 获取所有待处理的任务
+    // 获取所有待处理的任务（需要获取完整任务信息，不仅仅是ID）
     let query = supabase
       .from('sync_tasks')
-      .select('id')
+      .select('*')  // 获取完整任务信息
       .eq('status', 'pending')
       .order('priority', { ascending: false })
       .order('created_at', { ascending: true })
@@ -38,51 +43,114 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 并发调用处理器处理多个任务
-    const processPromises = pendingTasks.map(async (task) => {
+    console.log(`[Batch Processor] Processing ${pendingTasks.length} tasks serially (one by one)`);
+
+    // 串行处理任务，一次只处理一个
+    const results = [];
+    let taskIndex = 0;
+
+    for (const task of pendingTasks) {
+      taskIndex++;
+      const startTime = Date.now();
+
+      console.log(`[Batch Processor] Processing task ${taskIndex}/${pendingTasks.length}`);
+
+      // 先标记当前任务为运行中
+      await supabase
+        .from('sync_tasks')
+        .update({
+          status: 'running',
+          started_at: new Date().toISOString()
+        })
+        .eq('id', task.id);
+
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
-                       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3001');
+        console.log(`[Task ${task.id}] Starting ${task.sync_type} sync for site ${task.site_id}`);
 
-        const response = await fetch(`${baseUrl}/api/sync/queue/processor`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
+        // 根据任务类型直接调用对应的同步函数
+        let syncResult: SyncResult;
 
-        if (!response.ok) {
-          throw new Error(`Processor returned ${response.status}`);
+        if (task.sync_type === 'orders') {
+          syncResult = await executeIncrementalOrderSync(
+            task.site_id,
+            task.metadata?.mode || 'incremental',
+            50, // batchSize
+            task.id // taskId for progress tracking
+          );
+        } else if (task.sync_type === 'products') {
+          syncResult = await executeIncrementalProductSync(
+            task.site_id,
+            task.metadata?.mode || 'incremental',
+            50, // batchSize
+            task.id // taskId for progress tracking
+          );
+        } else {
+          throw new Error(`Unknown sync type: ${task.sync_type}`);
         }
 
-        const result = await response.json();
-        return {
+        // 标记任务为完成
+        await supabase
+          .from('sync_tasks')
+          .update({
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            result: syncResult,
+            duration_ms: Date.now() - startTime
+          })
+          .eq('id', task.id);
+
+        const duration = Date.now() - startTime;
+        console.log(`[Task ${task.id}] Completed successfully in ${duration}ms`);
+
+        results.push({
           taskId: task.id,
-          success: result.success,
-          error: result.error
-        };
+          success: true,
+          duration: duration,
+          synced: task.sync_type === 'orders' ? syncResult.syncedOrders : syncResult.syncedProducts
+        });
+
       } catch (error: any) {
-        return {
+        const duration = Date.now() - startTime;
+        console.error(`[Task ${task.id}] Failed after ${duration}ms:`, error.message);
+
+        // 标记任务为失败
+        await supabase
+          .from('sync_tasks')
+          .update({
+            status: 'failed',
+            completed_at: new Date().toISOString(),
+            error_message: error.message,
+            duration_ms: duration
+          })
+          .eq('id', task.id);
+
+        results.push({
           taskId: task.id,
           success: false,
-          error: error.message
-        };
+          error: error.message,
+          duration: duration
+        });
       }
-    });
 
-    // 等待所有任务处理完成
-    const results = await Promise.allSettled(processPromises);
+      console.log(`[Batch Processor] Progress: ${taskIndex}/${pendingTasks.length} tasks completed`);
+    }
 
     // 统计结果
-    const processed = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-    const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
+    const processed = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const totalDuration = results.reduce((sum, r) => sum + r.duration, 0);
+    const avgDuration = results.length > 0 ? totalDuration / results.length : 0;
+
+    console.log(`[Batch Processor] All tasks completed: ${processed} succeeded, ${failed} failed, avg duration: ${Math.round(avgDuration)}ms`);
 
     return NextResponse.json({
       success: true,
       message: `批量处理完成：${processed} 个成功，${failed} 个失败`,
       processed,
       failed,
-      total: pendingTasks.length
+      total: pendingTasks.length,
+      avgDuration: Math.round(avgDuration),
+      details: results
     });
 
   } catch (error: any) {

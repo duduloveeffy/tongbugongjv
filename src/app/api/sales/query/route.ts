@@ -1,434 +1,417 @@
-import { type NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
-import { cacheSalesData, getCachedSalesData, generateCacheKey, CACHE_TTL } from '@/lib/redis-cache';
-import crypto from 'crypto';
 
-interface SalesQueryResult {
-  sku: string;
-  siteName: string;
-  siteId: string;
-  orderCount: number;
-  salesQuantity: number;
-  orderCount30d: number;
-  salesQuantity30d: number;
-  totalRevenue: number;
-  lastOrderDate: string | null;
-  productName: string | null;
-  stockQuantity: number | null;
-  stockStatus: string | null;
-  price: number | null;
+interface QueryParams {
+  siteIds?: string[];
+  statuses?: string[];
+  dateStart: string;
+  dateEnd: string;
+  compareStart?: string;
+  compareEnd?: string;
+  groupBy?: 'day' | 'week' | 'month';
 }
 
-interface AggregatedSalesData {
-  sku: string;
-  productName: string | null;
-  totalOrderCount: number;
-  totalSalesQuantity: number;
-  totalOrderCount30d: number;
-  totalSalesQuantity30d: number;
-  totalRevenue: number;
-  lastOrderDate: string | null;
-  sites: {
-    [siteName: string]: {
-      siteId: string;
-      orderCount: number;
-      salesQuantity: number;
-      orderCount30d: number;
-      salesQuantity30d: number;
-      revenue: number;
-      lastOrderDate: string | null;
-      stockQuantity: number | null;
-      stockStatus: string | null;
-      price: number | null;
-    };
-  };
-}
-
-// POST: Query sales data from local database
 export async function POST(request: NextRequest) {
   try {
-    const supabase = getSupabaseClient();
-    
-    if (!supabase) {
-      return NextResponse.json({ 
-        error: 'Supabase not configured' 
-      }, { status: 503 });
-    }
-
-    let body;
-    try {
-      body = await request.json();
-    } catch (error) {
-      console.error('Failed to parse request body:', error);
-      return NextResponse.json({ 
-        error: 'Invalid request body - expecting JSON' 
-      }, { status: 400 });
-    }
-    
-    const { 
-      skus, 
-      siteIds, 
-      daysBack = 30,
-      includeStock = true,
-      aggregateResults = true 
+    const body: QueryParams = await request.json();
+    const {
+      siteIds = [],
+      statuses = ['completed', 'processing', 'pending', 'on-hold', 'cancelled', 'refunded', 'failed'],
+      dateStart,
+      dateEnd,
+      compareStart,
+      compareEnd,
+      groupBy = 'day'
     } = body;
 
-    if (!skus || !Array.isArray(skus) || skus.length === 0) {
-      return NextResponse.json({ 
-        error: 'SKUs array is required' 
-      }, { status: 400 });
+    // 处理日期 - 确保使用正确的UTC时间
+    // 如果传入的是日期字符串（YYYY-MM-DD），需要正确处理
+    let adjustedDateStart = dateStart;
+    let adjustedDateEnd = dateEnd;
+
+    // 如果是短日期格式，补充时间部分
+    if (dateStart && dateStart.length === 10) {
+      adjustedDateStart = `${dateStart}T00:00:00.000Z`;
+    }
+    if (dateEnd && dateEnd.length === 10) {
+      adjustedDateEnd = `${dateEnd}T23:59:59.999Z`;
     }
 
-    // Validate site IDs if provided
-    let validSiteIds = siteIds;
-    if (!siteIds || siteIds.length === 0) {
-      // If no sites specified, get all enabled sites
-      const { data: sites } = await supabase
-        .from('wc_sites')
-        .select('id')
-        .eq('enabled', true);
-      
-      validSiteIds = sites?.map(s => s.id) || [];
+    // 添加详细日志
+    console.log('[Sales Query] Request params:', {
+      siteIds,
+      statuses,
+      originalDateStart: dateStart,
+      originalDateEnd: dateEnd,
+      adjustedDateStart,
+      adjustedDateEnd,
+      siteIdsCount: siteIds.length,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!dateStart || !dateEnd) {
+      return NextResponse.json(
+        { error: 'Date range is required' },
+        { status: 400 }
+      );
     }
 
-    if (validSiteIds.length === 0) {
-      return NextResponse.json({ 
-        error: 'No enabled sites found' 
-      }, { status: 400 });
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Database not configured' },
+        { status: 503 }
+      );
     }
 
-    // 生成缓存键
-    const skuHash = crypto.createHash('md5').update(skus.sort().join(',')).digest('hex').slice(0, 16);
-    const siteHash = crypto.createHash('md5').update(validSiteIds.sort().join(',')).digest('hex').slice(0, 16);
-    const cacheKey = `${skuHash}:${siteHash}:${daysBack}`;
-    
-    // 尝试从缓存获取
-    const cached = await getCachedSalesData(skuHash, `${siteHash}:${daysBack}`);
-    if (cached) {
-      return NextResponse.json({
-        success: true,
-        data: cached.data,
-        meta: {
-          ...cached.meta,
-          fromCache: true,
-          cacheKey,
-        },
-      });
-    }
+    // 首先检查是否有订单数据
+    const { count: totalOrdersCount } = await supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true });
 
-    const startTime = Date.now();
-    const results: SalesQueryResult[] = [];
-    const errors: string[] = [];
+    console.log('[Sales Query] Total orders in database:', totalOrdersCount);
 
-    // Process SKUs in batches for better performance
-    const batchSize = 50;
-    for (let i = 0; i < skus.length; i += batchSize) {
-      const skuBatch = skus.slice(i, i + batchSize);
-      
-      try {
-        // Query sales data using the database function
-        const { data: salesData, error: salesError } = await supabase
-          .rpc('get_batch_sales_stats', {
-            p_skus: skuBatch,
-            p_site_ids: validSiteIds,
-            p_days_back: daysBack,
-          });
+    // Build query for current period - join with order_items
+    // 分页获取所有数据，绕过Supabase的1000条限制
+    let allCurrentOrders: any[] = [];
+    let offset = 0;
+    const pageSize = 1000;
+    let hasMore = true;
 
-        if (salesError) {
-          console.error('Sales query error:', salesError);
-          errors.push(`Batch ${i / batchSize + 1}: ${salesError.message}`);
-          continue;
-        }
+    while (hasMore) {
+      let currentQuery = supabase
+        .from('orders')
+        .select(`
+          *,
+          order_items (
+            id,
+            item_id,
+            product_id,
+            variation_id,
+            sku,
+            name,
+            quantity,
+            total,
+            price
+          )
+        `, { count: 'exact' })
+        .gte('date_created', adjustedDateStart)
+        .lte('date_created', adjustedDateEnd)
+        .in('status', statuses)
+        .range(offset, offset + pageSize - 1)
+        .order('date_created', { ascending: false });
 
-        // If stock information is requested, fetch it
-        let stockData: any[] = [];
-        if (includeStock) {
-          const { data: stock, error: stockError } = await supabase
-            .rpc('get_product_stock_status', {
-              p_skus: skuBatch,
-              p_site_ids: validSiteIds,
-            });
-
-          if (stockError) {
-            console.error('Stock query error:', stockError);
-            errors.push(`Stock batch ${i / batchSize + 1}: ${stockError.message}`);
-          } else {
-            stockData = stock || [];
-          }
-        }
-
-        // Combine sales and stock data
-        if (salesData && salesData.length > 0) {
-          for (const sale of salesData) {
-            // Find matching stock data
-            const stock = stockData.find(
-              s => s.sku === sale.sku && s.site_id === sale.site_id
-            );
-
-            results.push({
-              sku: sale.sku,
-              siteName: sale.site_name,
-              siteId: sale.site_id,
-              orderCount: Number(sale.order_count) || 0,
-              salesQuantity: Number(sale.sales_quantity) || 0,
-              orderCount30d: Number(sale.order_count_30d) || 0,
-              salesQuantity30d: Number(sale.sales_quantity_30d) || 0,
-              totalRevenue: Number(sale.total_revenue) || 0,
-              lastOrderDate: sale.last_order_date,
-              productName: stock?.product_name || null,
-              stockQuantity: stock?.stock_quantity ?? null,
-              stockStatus: stock?.stock_status || null,
-              price: stock?.price ?? null,
-            });
-          }
-        }
-
-        // Add SKUs with no sales but have stock data
-        if (includeStock && stockData.length > 0) {
-          for (const stock of stockData) {
-            const hasSales = results.some(
-              r => r.sku === stock.sku && r.siteId === stock.site_id
-            );
-
-            if (!hasSales) {
-              results.push({
-                sku: stock.sku,
-                siteName: stock.site_name,
-                siteId: stock.site_id,
-                orderCount: 0,
-                salesQuantity: 0,
-                orderCount30d: 0,
-                salesQuantity30d: 0,
-                totalRevenue: 0,
-                lastOrderDate: null,
-                productName: stock.product_name,
-                stockQuantity: stock.stock_quantity ?? null,
-                stockStatus: stock.stock_status || null,
-                price: stock.price ?? null,
-              });
-            }
-          }
-        }
-
-      } catch (batchError: any) {
-        console.error('Batch processing error:', batchError);
-        errors.push(`Batch ${i / batchSize + 1}: ${batchError.message}`);
+      // Filter by sites if specified
+      if (siteIds && siteIds.length > 0) {
+        currentQuery = currentQuery.in('site_id', siteIds);
       }
+
+      const { data: pageData, error: pageError, count } = await currentQuery;
+
+      if (pageError) {
+        console.error('Failed to fetch page:', pageError);
+        return NextResponse.json(
+          { error: pageError.message || 'Failed to fetch orders' },
+          { status: 500 }
+        );
+      }
+
+      if (pageData && pageData.length > 0) {
+        allCurrentOrders = [...allCurrentOrders, ...pageData];
+        offset += pageSize;
+
+        // 检查是否还有更多数据
+        hasMore = pageData.length === pageSize && offset < 100000; // 最多获取10万条
+      } else {
+        hasMore = false;
+      }
+
+      console.log(`[Sales Query] Fetched page: ${Math.floor(offset / pageSize)}, Records: ${pageData?.length || 0}, Total so far: ${allCurrentOrders.length}`);
     }
 
-    // Aggregate results if requested
-    let responseData: any = results;
-    
-    if (aggregateResults && results.length > 0) {
-      responseData = aggregateSalesData(results);
+    const currentOrders = allCurrentOrders;
+    const currentError = null;
+
+    console.log('[Sales Query] Total orders fetched:', currentOrders?.length || 0);
+
+    if (currentError) {
+      console.error('Failed to fetch current period orders:', currentError);
+      console.error('Query parameters:', {
+        dateStart,
+        dateEnd,
+        statuses,
+        siteIds
+      });
+      return NextResponse.json(
+        { error: currentError.message || 'Failed to fetch orders' },
+        { status: 500 }
+      );
     }
 
-    // Check sync freshness for the queried sites
-    const { data: checkpoints } = await supabase
-      .from('sync_checkpoints_v2')
-      .select('site_id, last_sync_completed_at, last_sync_status')
-      .in('site_id', validSiteIds)
-      .eq('sync_type', 'orders');
+    // 如果没有数据，检查原因
+    if (!currentOrders || currentOrders.length === 0) {
+      // 检查日期范围内是否有任何订单（不限状态）
+      const { data: anyOrders } = await supabase
+        .from('orders')
+        .select('id, date_created, status, site_id')
+        .gte('date_created', dateStart)
+        .lte('date_created', dateEnd)
+        .limit(5);
 
-    const syncStatus = checkpoints?.reduce((acc: any, cp) => {
-      acc[cp.site_id] = {
-        lastSync: cp.last_sync_completed_at,
-        status: cp.last_sync_status,
-        isFresh: isSyncFresh(cp.last_sync_completed_at),
+      console.log('[Sales Query] Date range check - Any orders in range:', anyOrders?.length || 0);
+      if (anyOrders && anyOrders.length > 0) {
+        console.log('[Sales Query] Sample orders:', anyOrders);
+      }
+
+      // 获取最近的订单查看日期格式
+      const { data: recentOrders } = await supabase
+        .from('orders')
+        .select('id, date_created, status, site_id')
+        .order('date_created', { ascending: false })
+        .limit(3);
+
+      console.log('[Sales Query] Recent orders for date format check:', recentOrders);
+    }
+
+    // Build query for comparison period if specified
+    let compareOrders: any[] = [];
+    if (compareStart && compareEnd) {
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        let compareQuery = supabase
+          .from('orders')
+          .select(`
+            *,
+            order_items (
+              id,
+              item_id,
+              product_id,
+              variation_id,
+              sku,
+              name,
+              quantity,
+              total,
+              price
+            )
+          `)
+          .gte('date_created', compareStart)
+          .lte('date_created', compareEnd)
+          .in('status', statuses)
+          .range(offset, offset + pageSize - 1)
+          .order('date_created', { ascending: false });
+
+        if (siteIds && siteIds.length > 0) {
+          compareQuery = compareQuery.in('site_id', siteIds);
+        }
+
+        const { data: pageData, error: pageError } = await compareQuery;
+
+        if (pageError) {
+          console.error('Failed to fetch compare page:', pageError);
+          break;
+        }
+
+        if (pageData && pageData.length > 0) {
+          compareOrders = [...compareOrders, ...pageData];
+          offset += pageSize;
+          hasMore = pageData.length === pageSize && offset < 100000;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log('[Sales Query] Compare orders fetched:', compareOrders.length);
+    }
+
+    // Calculate statistics
+    const calculateStats = (orders: any[]) => {
+      const stats = {
+        totalOrders: orders.length,
+        totalRevenue: 0,
+        totalQuantity: 0,
+        bySite: {} as Record<string, any>,
+        bySku: {} as Record<string, any>,
       };
-      return acc;
-    }, {});
 
-    const response = {
-      data: responseData,
-      meta: {
-        totalSkus: skus.length,
-        totalSites: validSiteIds.length,
-        resultsCount: results.length,
-        queryDuration: Date.now() - startTime,
-        daysBack,
-        syncStatus,
-        errors: errors.length > 0 ? errors : undefined,
-      },
+      orders.forEach(order => {
+        // Total revenue
+        stats.totalRevenue += parseFloat(order.total || 0);
+
+        // By site statistics
+        const siteId = order.site_id;
+        if (!stats.bySite[siteId]) {
+          // We'll need to get site names separately or use site_id as fallback
+          stats.bySite[siteId] = {
+            orderCount: 0,
+            revenue: 0,
+            quantity: 0,
+            siteName: `Site ${siteId}`, // Will be replaced with actual site name
+          };
+        }
+        stats.bySite[order.site_id].orderCount++;
+        stats.bySite[order.site_id].revenue += parseFloat(order.total || 0);
+
+        // Parse order_items for SKU statistics
+        const orderItems = order.order_items || [];
+        orderItems.forEach((item: any) => {
+          const sku = item.sku || `product_${item.product_id}`;
+          const quantity = parseInt(item.quantity || 0);
+
+          stats.totalQuantity += quantity;
+          stats.bySite[order.site_id].quantity += quantity;
+
+          if (!stats.bySku[sku]) {
+            stats.bySku[sku] = {
+              sku,
+              name: item.name,
+              orderCount: 0,
+              quantity: 0,
+              revenue: 0,
+              sites: new Set(),
+            };
+          }
+          stats.bySku[sku].orderCount++;
+          stats.bySku[sku].quantity += quantity;
+          stats.bySku[sku].revenue += parseFloat(item.total || 0);
+          stats.bySku[sku].sites.add(order.site_id);
+        });
+      });
+
+      // Convert sets to arrays for JSON serialization
+      Object.keys(stats.bySku).forEach(sku => {
+        stats.bySku[sku].sites = Array.from(stats.bySku[sku].sites);
+      });
+
+      return stats;
     };
-    
-    // 异步缓存结果（不阻塞响应）
-    if (results.length > 0 && errors.length === 0) {
-      cacheSalesData(skuHash, `${siteHash}:${daysBack}`, response, CACHE_TTL.SALES).catch(err => {
-        console.error('Failed to cache sales data:', err);
+
+    // Get site names - 修复：当siteIds为空时，获取所有站点
+    let sitesToQuery = siteIds;
+    if (!siteIds || siteIds.length === 0) {
+      // 如果没有指定站点，获取所有启用的站点
+      const { data: allSites } = await supabase
+        .from('wc_sites')
+        .select('id, name')
+        .eq('enabled', true);
+
+      sitesToQuery = allSites?.map(s => s.id) || [];
+      console.log('[Sales Query] No sites specified, using all enabled sites:', sitesToQuery.length);
+    }
+
+    const { data: sites } = await supabase
+      .from('wc_sites')
+      .select('id, name')
+      .in('id', sitesToQuery.length > 0 ? sitesToQuery : ['dummy-id']); // 使用dummy-id避免空数组问题
+
+    const siteNameMap: Record<string, string> = {};
+    if (sites) {
+      sites.forEach(site => {
+        siteNameMap[site.id] = site.name;
       });
     }
-    
+
+    const currentStats = calculateStats(currentOrders || []);
+    const compareStats = compareStart ? calculateStats(compareOrders) : null;
+
+    // Update site names in stats
+    if (currentStats && currentStats.bySite) {
+      Object.keys(currentStats.bySite).forEach(siteId => {
+        currentStats.bySite[siteId].siteName = siteNameMap[siteId] || `Site ${siteId}`;
+      });
+    }
+    if (compareStats && compareStats.bySite) {
+      Object.keys(compareStats.bySite).forEach(siteId => {
+        compareStats.bySite[siteId].siteName = siteNameMap[siteId] || `Site ${siteId}`;
+      });
+    }
+
+    // Calculate growth rates if comparison period exists
+    let growth = null;
+    if (compareStats) {
+      growth = {
+        orders: compareStats.totalOrders > 0
+          ? ((currentStats.totalOrders - compareStats.totalOrders) / compareStats.totalOrders * 100).toFixed(2)
+          : null,
+        revenue: compareStats.totalRevenue > 0
+          ? ((currentStats.totalRevenue - compareStats.totalRevenue) / compareStats.totalRevenue * 100).toFixed(2)
+          : null,
+        quantity: compareStats.totalQuantity > 0
+          ? ((currentStats.totalQuantity - compareStats.totalQuantity) / compareStats.totalQuantity * 100).toFixed(2)
+          : null,
+      };
+    }
+
+    // Group by time period if requested
+    let timeSeriesData = null;
+    if (groupBy) {
+      timeSeriesData = groupOrdersByTime(currentOrders || [], groupBy);
+    }
+
     return NextResponse.json({
       success: true,
-      ...response,
+      data: {
+        current: currentStats,
+        compare: compareStats,
+        growth,
+        timeSeries: timeSeriesData,
+        period: {
+          current: { start: dateStart, end: dateEnd },
+          compare: compareStart ? { start: compareStart, end: compareEnd } : null,
+        },
+      },
     });
 
   } catch (error: any) {
     console.error('Sales query API error:', error);
-    return NextResponse.json({ 
-      error: error.message || 'Internal server error' 
-    }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
-// GET: Get sync status for all sites
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = getSupabaseClient();
-    
-    if (!supabase) {
-      return NextResponse.json({ 
-        error: 'Supabase not configured' 
-      }, { status: 503 });
+function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month') {
+  const groups: Record<string, any> = {};
+
+  orders.forEach(order => {
+    const date = new Date(order.date_created);
+    let key: string = ''; // 初始化为空字符串，避免TypeScript错误
+
+    switch (groupBy) {
+      case 'day':
+        key = date.toISOString().split('T')[0];
+        break;
+      case 'week':
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - date.getDay());
+        key = weekStart.toISOString().split('T')[0];
+        break;
+      case 'month':
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        break;
+      default:
+        key = date.toISOString().split('T')[0]; // 默认按天
     }
 
-    // Get all sites with their sync status
-    const { data: sites, error: sitesError } = await supabase
-      .from('wc_sites')
-      .select(`
-        id,
-        name,
-        url,
-        enabled,
-        last_sync_at
-      `)
-      .order('name');
-
-    if (sitesError) {
-      throw sitesError;
-    }
-
-    // Get sync checkpoints for all sites
-    const { data: checkpoints, error: checkpointsError } = await supabase
-      .from('sync_checkpoints_v2')
-      .select('*')
-      .eq('sync_type', 'orders');
-
-    if (checkpointsError) {
-      throw checkpointsError;
-    }
-
-    // Get recent sync logs
-    const { data: recentLogs, error: logsError } = await supabase
-      .from('sync_logs')
-      .select('*')
-      .eq('sync_type', 'orders')
-      .order('started_at', { ascending: false })
-      .limit(50);
-
-    if (logsError) {
-      throw logsError;
-    }
-
-    // Combine data
-    const siteStatus = sites?.map(site => {
-      const checkpoint = checkpoints?.find(cp => cp.site_id === site.id);
-      const logs = recentLogs?.filter(log => log.site_id === site.id) || [];
-      
-      return {
-        ...site,
-        syncStatus: {
-          lastOrderId: checkpoint?.last_order_id,
-          lastOrderModified: checkpoint?.last_order_modified,
-          orderssynced: checkpoint?.orders_synced_count || 0,
-          lastSyncCompleted: checkpoint?.last_sync_completed_at,
-          lastSyncStatus: checkpoint?.last_sync_status,
-          lastError: checkpoint?.last_error_message,
-          isFresh: isSyncFresh(checkpoint?.last_sync_completed_at),
-        },
-        recentLogs: logs.slice(0, 5).map(log => ({
-          startedAt: log.started_at,
-          completedAt: log.completed_at,
-          status: log.status,
-          itemsSynced: log.items_synced,
-          duration: log.duration_ms,
-        })),
+    if (!groups[key]) {
+      groups[key] = {
+        date: key,
+        orders: 0,
+        revenue: 0,
+        quantity: 0,
       };
+    }
+
+    groups[key].orders++;
+    groups[key].revenue += parseFloat(order.total || 0);
+
+    const orderItems = order.order_items || [];
+    orderItems.forEach((item: any) => {
+      groups[key].quantity += parseInt(item.quantity || 0);
     });
+  });
 
-    return NextResponse.json({
-      success: true,
-      sites: siteStatus,
-      totalSites: sites?.length || 0,
-      enabledSites: sites?.filter(s => s.enabled).length || 0,
-    });
-
-  } catch (error: any) {
-    console.error('Sync status API error:', error);
-    return NextResponse.json({ 
-      error: error.message || 'Internal server error' 
-    }, { status: 500 });
-  }
-}
-
-// Helper function to aggregate sales data by SKU
-function aggregateSalesData(results: SalesQueryResult[]): AggregatedSalesData[] {
-  const aggregated = new Map<string, AggregatedSalesData>();
-
-  for (const result of results) {
-    let skuData = aggregated.get(result.sku);
-    
-    if (!skuData) {
-      skuData = {
-        sku: result.sku,
-        productName: result.productName,
-        totalOrderCount: 0,
-        totalSalesQuantity: 0,
-        totalOrderCount30d: 0,
-        totalSalesQuantity30d: 0,
-        totalRevenue: 0,
-        lastOrderDate: null,
-        sites: {},
-      };
-      aggregated.set(result.sku, skuData);
-    }
-
-    // Update totals
-    skuData.totalOrderCount += result.orderCount;
-    skuData.totalSalesQuantity += result.salesQuantity;
-    skuData.totalOrderCount30d += result.orderCount30d;
-    skuData.totalSalesQuantity30d += result.salesQuantity30d;
-    skuData.totalRevenue += result.totalRevenue;
-
-    // Update last order date
-    if (result.lastOrderDate) {
-      if (!skuData.lastOrderDate || 
-          new Date(result.lastOrderDate) > new Date(skuData.lastOrderDate)) {
-        skuData.lastOrderDate = result.lastOrderDate;
-      }
-    }
-
-    // Update product name if not set
-    if (!skuData.productName && result.productName) {
-      skuData.productName = result.productName;
-    }
-
-    // Add site-specific data
-    skuData.sites[result.siteName] = {
-      siteId: result.siteId,
-      orderCount: result.orderCount,
-      salesQuantity: result.salesQuantity,
-      orderCount30d: result.orderCount30d,
-      salesQuantity30d: result.salesQuantity30d,
-      revenue: result.totalRevenue,
-      lastOrderDate: result.lastOrderDate,
-      stockQuantity: result.stockQuantity,
-      stockStatus: result.stockStatus,
-      price: result.price,
-    };
-  }
-
-  return Array.from(aggregated.values());
-}
-
-// Helper function to check if sync is fresh (within 6 hours)
-function isSyncFresh(lastSync: string | null | undefined, hoursThreshold = 6): boolean {
-  if (!lastSync) return false;
-  
-  const syncTime = new Date(lastSync).getTime();
-  const now = Date.now();
-  const hoursDiff = (now - syncTime) / (1000 * 60 * 60);
-  
-  return hoursDiff <= hoursThreshold;
+  return Object.values(groups).sort((a, b) => a.date.localeCompare(b.date));
 }
