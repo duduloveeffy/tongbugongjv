@@ -233,11 +233,15 @@ export async function POST(request: NextRequest) {
         totalQuantity: 0,
         bySite: {} as Record<string, any>,
         bySku: {} as Record<string, any>,
+        byCountry: {} as Record<string, any>,
       };
 
       orders.forEach(order => {
         // Total revenue
         stats.totalRevenue += parseFloat(order.total || 0);
+
+        // Determine country (shipping_country or billing_country as fallback)
+        const country = (order.shipping_country || order.billing_country || 'UNKNOWN').toUpperCase().trim();
 
         // By site statistics
         const siteId = order.site_id;
@@ -253,6 +257,21 @@ export async function POST(request: NextRequest) {
         stats.bySite[order.site_id].orderCount++;
         stats.bySite[order.site_id].revenue += parseFloat(order.total || 0);
 
+        // By country statistics
+        if (!stats.byCountry[country]) {
+          stats.byCountry[country] = {
+            country,
+            orderCount: 0,
+            revenue: 0,
+            quantity: 0,
+            sites: new Set<string>(),
+            skus: new Set<string>(),
+          };
+        }
+        stats.byCountry[country].orderCount++;
+        stats.byCountry[country].revenue += parseFloat(order.total || 0);
+        stats.byCountry[country].sites.add(order.site_id);
+
         // Parse order_items for SKU statistics
         const orderItems = order.order_items || [];
         orderItems.forEach((item: any) => {
@@ -261,6 +280,8 @@ export async function POST(request: NextRequest) {
 
           stats.totalQuantity += quantity;
           stats.bySite[order.site_id].quantity += quantity;
+          stats.byCountry[country].quantity += quantity;
+          stats.byCountry[country].skus.add(sku);
 
           if (!stats.bySku[sku]) {
             stats.bySku[sku] = {
@@ -282,6 +303,13 @@ export async function POST(request: NextRequest) {
       // Convert sets to arrays for JSON serialization
       Object.keys(stats.bySku).forEach(sku => {
         stats.bySku[sku].sites = Array.from(stats.bySku[sku].sites);
+      });
+
+      Object.keys(stats.byCountry).forEach(country => {
+        stats.byCountry[country].sites = Array.from(stats.byCountry[country].sites);
+        stats.byCountry[country].skus = Array.from(stats.byCountry[country].skus);
+        stats.byCountry[country].siteCount = stats.byCountry[country].sites.length;
+        stats.byCountry[country].skuCount = stats.byCountry[country].skus.length;
       });
 
       return stats;
@@ -346,7 +374,21 @@ export async function POST(request: NextRequest) {
     // Group by time period if requested
     let timeSeriesData = null;
     if (groupBy) {
-      timeSeriesData = groupOrdersByTime(currentOrders || [], groupBy);
+      if (compareStart && compareEnd) {
+        // 当有对比期时，生成包含两期数据的时间序列
+        timeSeriesData = groupOrdersByTimeWithCompare(
+          currentOrders || [],
+          compareOrders,
+          groupBy,
+          dateStart,
+          dateEnd,
+          compareStart,
+          compareEnd
+        );
+      } else {
+        // 没有对比期时，只显示当前期数据
+        timeSeriesData = groupOrdersByTime(currentOrders || [], groupBy);
+      }
     }
 
     return NextResponse.json({
@@ -414,4 +456,94 @@ function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month') {
   });
 
   return Object.values(groups).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function groupOrdersByTimeWithCompare(
+  currentOrders: any[],
+  compareOrders: any[],
+  groupBy: 'day' | 'week' | 'month',
+  currentStart: string,
+  currentEnd: string,
+  compareStart: string,
+  compareEnd: string
+) {
+  const getDateKey = (date: Date, groupBy: 'day' | 'week' | 'month'): string => {
+    switch (groupBy) {
+      case 'day':
+        return date.toISOString().split('T')[0];
+      case 'week':
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - date.getDay());
+        return weekStart.toISOString().split('T')[0];
+      case 'month':
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      default:
+        return date.toISOString().split('T')[0];
+    }
+  };
+
+  const aggregateOrders = (orders: any[]) => {
+    const groups: Record<string, any> = {};
+
+    orders.forEach(order => {
+      const date = new Date(order.date_created);
+      const key = getDateKey(date, groupBy);
+
+      if (!groups[key]) {
+        groups[key] = {
+          orders: 0,
+          revenue: 0,
+          quantity: 0,
+        };
+      }
+
+      groups[key].orders++;
+      groups[key].revenue += parseFloat(order.total || 0);
+
+      const orderItems = order.order_items || [];
+      orderItems.forEach((item: any) => {
+        groups[key].quantity += parseInt(item.quantity || 0);
+      });
+    });
+
+    return groups;
+  };
+
+  const currentGroups = aggregateOrders(currentOrders);
+  const compareGroups = aggregateOrders(compareOrders);
+
+  // 生成所有需要的时间点（基于当前期）
+  const timePoints = Object.keys(currentGroups).sort();
+
+  const result = timePoints.map(date => {
+    const current = currentGroups[date] || { orders: 0, revenue: 0, quantity: 0 };
+    const compare = compareGroups[date] || { orders: 0, revenue: 0, quantity: 0 };
+
+    // 计算增长率
+    const calculateGrowth = (currentVal: number, compareVal: number) => {
+      if (!compareVal || compareVal === 0) return null;
+      return ((currentVal - compareVal) / compareVal * 100).toFixed(1);
+    };
+
+    return {
+      date,
+      current: {
+        orders: current.orders,
+        revenue: current.revenue,
+        quantity: current.quantity,
+      },
+      compare: {
+        orders: compare.orders,
+        revenue: compare.revenue,
+        quantity: compare.quantity,
+      },
+      growth: {
+        orders: calculateGrowth(current.orders, compare.orders),
+        revenue: calculateGrowth(current.revenue, compare.revenue),
+        quantity: calculateGrowth(current.quantity, compare.quantity),
+      },
+    };
+  });
+
+  return result;
 }
