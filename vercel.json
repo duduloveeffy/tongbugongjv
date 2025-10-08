@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/sales/spu-trends/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/sales/country-trends/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
