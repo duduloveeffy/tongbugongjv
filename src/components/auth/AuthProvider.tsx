@@ -14,12 +14,17 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     // Check session on mount and when pathname changes
     const verifyAuth = async () => {
+      // Always validate with server first
       await checkSession();
-      
+
       const authState = useAuthStore.getState();
       const isPublicPath = PUBLIC_PATHS.some(path => pathname.startsWith(path));
-      
+
+      // Only trust server-validated authentication state
       if (!authState.isAuthenticated && !isPublicPath) {
+        // Clear any stale localStorage data
+        localStorage.removeItem('auth-storage');
+        localStorage.removeItem('user');
         router.push('/login');
       } else if (authState.isAuthenticated && isPublicPath) {
         router.push('/');

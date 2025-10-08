@@ -18,9 +18,11 @@ import {
   Info,
   Search,
   ArrowRight,
-  RefreshCw
+  RefreshCw,
+  Download
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { exportToExcel } from '@/lib/export-utils';
 import { useMultiSiteStore } from '@/store/multisite';
 import { useInventoryStore } from '@/store/inventory';
 import type { InventoryItem } from '@/lib/inventory-utils';
@@ -256,6 +258,42 @@ export function MultiSiteSyncControls({
     }
   };
   
+  // 导出检测结果
+  const handleExportDetectionResults = () => {
+    if (detectionResults.size === 0) {
+      toast.error('没有可导出的检测结果');
+      return;
+    }
+
+    try {
+      const exportData: any[] = [];
+
+      detectionResults.forEach((results, sku) => {
+        results.forEach(result => {
+          const siteName = sites.find(s => s.id === result.siteId)?.name || result.siteId;
+
+          exportData.push({
+            SKU: sku,
+            站点: siteName,
+            状态: result.exists ? '已上架' : '未上架',
+            产品ID: result.productId || '-',
+            产品名称: result.name || '-',
+            库存状态: result.stockStatus || '-',
+            库存数量: result.stockQuantity ?? '-',
+            是否管理库存: result.manageStock ? '是' : '否',
+            错误信息: result.error || '-',
+          });
+        });
+      });
+
+      exportToExcel(exportData, '产品检测结果');
+      toast.success('导出成功');
+    } catch (error) {
+      console.error('导出失败:', error);
+      toast.error('导出失败');
+    }
+  };
+
   // 重置流程
   const handleReset = () => {
     setCurrentStep('select');
@@ -373,7 +411,19 @@ export function MultiSiteSyncControls({
         {/* 步骤3：检测结果审核 */}
         {currentStep === 'review' && (
           <div className="space-y-4">
-            <MultiSiteDetectionTable 
+            {/* 导出按钮 */}
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExportDetectionResults}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                导出检测结果
+              </Button>
+            </div>
+
+            <MultiSiteDetectionTable
               detectionResults={detectionResults}
               sites={sites}
               selectedSitesForSync={selectedSitesForSync}

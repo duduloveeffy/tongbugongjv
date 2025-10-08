@@ -77,7 +77,9 @@ export async function POST(request: NextRequest) {
       email: cleanEmail,
       password,
       options: {
-        emailRedirectTo: `${request.headers.get('origin')}/auth/callback`,
+        emailRedirectTo: process.env.NEXT_PUBLIC_APP_URL
+          ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`
+          : `${request.headers.get('origin')}/auth/callback`,
       },
     });
 

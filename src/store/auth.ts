@@ -82,8 +82,16 @@ export const useAuthStore = create<AuthState>()(
             token: null,
           });
 
-          // Clear other stores if needed
+          // Clear all localStorage items related to auth
           localStorage.removeItem('user');
+          localStorage.removeItem('auth-storage'); // Clear Zustand persist storage
+
+          // Clear all cookies (including Supabase cookies)
+          document.cookie.split(";").forEach((c) => {
+            document.cookie = c
+              .replace(/^ +/, "")
+              .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+          });
 
           // Redirect to login
           window.location.href = '/login';
@@ -127,7 +135,8 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       partialize: (state) => ({
         user: state.user,
-        isAuthenticated: state.isAuthenticated,
+        // Don't persist isAuthenticated - it should be validated on each session check
+        // isAuthenticated: state.isAuthenticated,
       }),
     }
   )

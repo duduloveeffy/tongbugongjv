@@ -15,7 +15,7 @@ function generatePassword(length = 12): string {
 // POST: Reset user password
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check if user is admin
@@ -49,7 +49,7 @@ export async function POST(
       );
     }
 
-    const targetUserId = params.id;
+    const { id: targetUserId } = await params;
 
     // Get target user info
     const { data: targetUser, error: fetchError } = await supabase

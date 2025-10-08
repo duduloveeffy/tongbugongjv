@@ -18,6 +18,9 @@ import {
   mergeWarehouseData,
   sortInventoryData
 } from '@/lib/inventory-utils';
+import { exportToExcel } from '@/lib/export-utils';
+import { Button } from '@/components/ui/button';
+import { Download } from 'lucide-react';
 
 export default function InventoryPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -251,6 +254,45 @@ export default function InventoryPage() {
     }
   }, [filteredInventoryData, inventoryData, setInventoryData, fetchSalesAnalysis, setIsSalesLoading, setSalesDetectionProgress]);
 
+  // Export inventory data
+  const handleExportInventory = useCallback(() => {
+    if (filteredInventoryData.length === 0) {
+      toast.error('没有可导出的数据');
+      return;
+    }
+
+    try {
+      const exportData = filteredInventoryData.map(item => ({
+        产品代码: item.产品代码,
+        产品名称: item.产品名称,
+        产品英文名称: item.产品英文名称,
+        仓库: item.仓库,
+        可售库存: item.可售库存,
+        缺货占用库存: item.缺货占用库存,
+        净可售库存: item.净可售库存 || 0,
+        在途数量: item.在途数量 || 0,
+        含在途库存: item.含在途库存 || 0,
+        预计含在途数量: item.预计含在途数量 || item.含在途库存 || 0,
+        ...(isSalesDetectionEnabled && {
+          '30天销量': item.salesData?.salesQuantity30d || 0,
+          '30天订单数': item.salesData?.orderCount30d || 0,
+        }),
+        仓库代码: item.仓库代码,
+        一级品类: item.一级品类,
+        二级品类: item.二级品类,
+        三级品类: item.三级品类,
+        销售状态: item.销售状态,
+      }));
+
+      const filename = isMergedMode ? '库存数据_合并' : '库存数据';
+      exportToExcel(exportData, filename);
+      toast.success('导出成功');
+    } catch (error) {
+      console.error('导出失败:', error);
+      toast.error('导出失败');
+    }
+  }, [filteredInventoryData, isMergedMode, isSalesDetectionEnabled]);
+
   // Clear data
   const handleClearData = () => {
     setInventoryData([]);
@@ -320,6 +362,20 @@ export default function InventoryPage() {
             setShowSalesDetectionDialog(true);
           }}
         />
+
+        {/* Export Button */}
+        {filteredInventoryData.length > 0 && (
+          <div className="flex justify-end">
+            <Button
+              onClick={handleExportInventory}
+              variant="outline"
+              size="sm"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              导出库存数据 ({filteredInventoryData.length} 条)
+            </Button>
+          </div>
+        )}
 
         <InventoryTable
           data={filteredInventoryData}

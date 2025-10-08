@@ -123,3 +123,70 @@
     @apply bg-background text-foreground;
 	}
 }
+
+/* 打印样式优化 */
+@media print {
+  /* 隐藏不需要打印的元素 */
+  button,
+  .no-print,
+  nav,
+  aside {
+    display: none !important;
+  }
+
+  /* 优化打印布局 */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* 确保内容完整显示 */
+  .container {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  /* 避免卡片断页 */
+  .card,
+  table,
+  .chart {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* 优化表格打印 */
+  table {
+    width: 100% !important;
+    font-size: 10pt;
+  }
+
+  /* 移除阴影和圆角（节省墨水） */
+  * {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* 优化页面边距 */
+  @page {
+    margin: 1cm;
+  }
+
+  /* 保留颜色（可选） */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* 确保图表正确显示 */
+  svg, canvas {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* 标题保持在页面顶部 */
+  h1, h2, h3 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+}

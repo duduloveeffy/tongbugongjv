@@ -5,8 +5,9 @@ import { DateRangePicker } from '@/components/sales/DateRangePicker';
 import { SalesStatistics } from '@/components/sales/SalesStatistics';
 import { SiteStatistics } from '@/components/sales/SiteStatistics';
 import { CountryStatistics } from '@/components/sales/CountryStatistics';
+import { SpuTrendDetail } from '@/components/sales/SpuTrendDetail';
 import { useMultiSiteStore } from '@/store/multisite';
-import { useCallback, useState, useEffect, useMemo } from 'react';
+import { useCallback, useState, useEffect, useMemo, Fragment } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -91,6 +92,8 @@ export default function SalesPage() {
   ]);
   // SPU聚合模式
   const [spuMode, setSpuMode] = useState<SpuExtractionMode>('series');
+  // SPU趋势展开状态
+  const [expandedSpu, setExpandedSpu] = useState<string | null>(null);
 
   // Multisite store
   const { sites, fetchSites } = useMultiSiteStore();
@@ -246,7 +249,9 @@ export default function SalesPage() {
 
       if (item.sites && Array.isArray(item.sites)) {
         item.sites.forEach((site: string) => {
-          currentSpuMap[spuName].sites.add(site);
+          if (currentSpuMap[spuName]) {
+            currentSpuMap[spuName].sites.add(site);
+          }
         });
       }
     });
@@ -314,6 +319,14 @@ export default function SalesPage() {
       toast.success('导出成功');
     } catch (error) {
       toast.error('导出失败');
+    }
+  };
+
+  const handleSpuClick = (spuName: string) => {
+    if (expandedSpu === spuName) {
+      setExpandedSpu(null);
+    } else {
+      setExpandedSpu(spuName);
     }
   };
 
@@ -534,6 +547,10 @@ export default function SalesPage() {
                 current={salesData.current.byCountry}
                 compare={salesData.compare?.byCountry}
                 isLoading={isLoading}
+                dateRange={dateRange}
+                groupBy={groupBy}
+                selectedSites={selectedSites}
+                orderStatuses={orderStatuses}
               />
             )}
 
@@ -685,9 +702,14 @@ export default function SalesPage() {
                             {spuData?.slice(0, 100).map((item, index) => {
                               const totalRevenue = spuData.reduce((sum, spu) => sum + spu.revenue, 0);
                               const percentage = totalRevenue > 0 ? (item.revenue / totalRevenue * 100).toFixed(1) : '0';
+                              const isExpanded = expandedSpu === item.spuName;
 
                               return (
-                              <TableRow key={item.spuName}>
+                              <Fragment key={item.spuName}>
+                              <TableRow
+                                onClick={() => handleSpuClick(item.spuName)}
+                                className="cursor-pointer hover:bg-gray-50 transition-colors"
+                              >
                                 <TableCell className="font-medium">#{index + 1}</TableCell>
                                 <TableCell>
                                   <div className="flex flex-col">
@@ -744,6 +766,27 @@ export default function SalesPage() {
                                 </TableCell>
                                 <TableCell className="text-right">{item.siteCount}</TableCell>
                               </TableRow>
+
+                              {/* 展开行：SPU趋势详情 */}
+                              {isExpanded && (
+                                <TableRow>
+                                  <TableCell colSpan={salesData.compare ? 12 : 9} className="p-0">
+                                    <div className="p-6 bg-gray-50">
+                                      <SpuTrendDetail
+                                        spu={item.spuName}
+                                        spuMode={spuMode}
+                                        dateRange={dateRange}
+                                        groupBy={groupBy}
+                                        selectedSites={selectedSites}
+                                        orderStatuses={orderStatuses}
+                                        nameMapping={defaultSpuMappings}
+                                        onClose={() => setExpandedSpu(null)}
+                                      />
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                              </Fragment>
                             );
                             })}
                           </TableBody>

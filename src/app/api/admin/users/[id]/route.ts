@@ -5,7 +5,7 @@ import { createServerClient } from '@supabase/ssr';
 // PUT: Update user
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check if user is admin
@@ -39,7 +39,7 @@ export async function PUT(
       );
     }
 
-    const targetUserId = params.id;
+    const { id: targetUserId } = await params;
     const body = await request.json();
 
     // Build update object
@@ -108,7 +108,7 @@ export async function PUT(
 // DELETE: Delete user
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check if user is admin
@@ -142,7 +142,7 @@ export async function DELETE(
       );
     }
 
-    const targetUserId = params.id;
+    const { id: targetUserId } = await params;
 
     // Prevent self-deletion
     if (targetUserId === userId) {

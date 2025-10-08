@@ -91,8 +91,11 @@ export default function UsersPage() {
   // Dialog states
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // Form states
   const [formData, setFormData] = useState({
@@ -217,25 +220,54 @@ export default function UsersPage() {
     }
   };
 
-  // Handle reset password
-  const handleResetPassword = async (user: User) => {
+  // Open password change dialog
+  const openPasswordDialog = (user: User) => {
+    setSelectedUser(user);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordDialogOpen(true);
+  };
+
+  // Handle change password
+  const handleChangePassword = async () => {
+    if (!selectedUser) return;
+
+    // Validate passwords
+    if (!newPassword || !confirmPassword) {
+      toast.error('请输入新密码');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error('两次输入的密码不一致');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error('密码长度至少为6位');
+      return;
+    }
+
     try {
-      const response = await authFetch(`/api/admin/users/${user.id}/reset-password`, {
+      const response = await authFetch(`/api/admin/users/${selectedUser.id}/change-password`, {
         method: 'POST',
+        body: JSON.stringify({ newPassword }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        toast.success(`密码已重置为: ${data.newPassword}`, {
-          duration: 10000,
-        });
+        toast.success('密码修改成功');
+        setPasswordDialogOpen(false);
+        setNewPassword('');
+        setConfirmPassword('');
+        setSelectedUser(null);
       } else {
-        toast.error(data.error || '重置密码失败');
+        toast.error(data.error || '修改密码失败');
       }
     } catch (error) {
-      console.error('Failed to reset password:', error);
-      toast.error('重置密码失败');
+      console.error('Failed to change password:', error);
+      toast.error('修改密码失败');
     }
   };
 
@@ -432,7 +464,8 @@ export default function UsersPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleResetPassword(user)}
+                            onClick={() => openPasswordDialog(user)}
+                            title="修改密码"
                           >
                             <Key className="h-4 w-4" />
                           </Button>
@@ -547,6 +580,57 @@ export default function UsersPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Password Change Dialog */}
+        <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>修改密码</DialogTitle>
+              <DialogDescription>
+                为用户 {selectedUser?.email} 设置新密码
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-password">新密码</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="输入新密码（至少6位）"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">确认密码</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次输入新密码"
+                />
+              </div>
+              {newPassword && confirmPassword && newPassword !== confirmPassword && (
+                <p className="text-sm text-red-500">两次输入的密码不一致</p>
+              )}
+              {newPassword && newPassword.length < 6 && (
+                <p className="text-sm text-yellow-500">密码长度至少为6位</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPasswordDialogOpen(false)}>
+                取消
+              </Button>
+              <Button
+                onClick={handleChangePassword}
+                disabled={!newPassword || !confirmPassword || newPassword !== confirmPassword || newPassword.length < 6}
+              >
+                确认修改
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </PageLayout>
   );
