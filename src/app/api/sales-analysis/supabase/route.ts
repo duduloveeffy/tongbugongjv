@@ -51,8 +51,10 @@ export async function POST(request: NextRequest) {
     
     debugLog(`Processing ${skus.length} SKUs for sales analysis (strict mode: ${strictMatch})`);
 
-    // 优化提示和策略选择
-    const OPTIMIZATION_THRESHOLD = 100; // 优化阈值
+    // 优化策略选择：
+    // - SKU ≤ 2000: 使用批量查询（每批 100 SKU，精确匹配）
+    // - SKU > 2000: 使用全表查询+内存过滤（需要更长的数据库超时）
+    const OPTIMIZATION_THRESHOLD = 2000; // 优化阈值（从 100 提高到 2000，避免过早触发全表查询）
     const useOptimization = skus.length > OPTIMIZATION_THRESHOLD;
 
     if (useOptimization) {
