@@ -10,6 +10,11 @@ export const env = createEnv({
 		NODE_ENV: z.enum(["development", "test", "production"]),
 		UPSTASH_REDIS_REST_URL: z.string().optional(),
 		UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+		// 氚云 ERP 配置
+		H3YUN_ENGINE_CODE: z.string(),
+		H3YUN_ENGINE_SECRET: z.string(),
+		H3YUN_INVENTORY_SCHEMA_CODE: z.string(),
+		H3YUN_WAREHOUSE_SCHEMA_CODE: z.string().default("svsphqmtteooobudbgy"),
 	},
 
 	/**
@@ -38,6 +43,11 @@ export const env = createEnv({
 		NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 		UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
 		UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
+		// 氚云 ERP 配置
+		H3YUN_ENGINE_CODE: process.env.H3YUN_ENGINE_CODE,
+		H3YUN_ENGINE_SECRET: process.env.H3YUN_ENGINE_SECRET,
+		H3YUN_INVENTORY_SCHEMA_CODE: process.env.H3YUN_INVENTORY_SCHEMA_CODE,
+		H3YUN_WAREHOUSE_SCHEMA_CODE: process.env.H3YUN_WAREHOUSE_SCHEMA_CODE,
 	},
 	/**
 	 * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

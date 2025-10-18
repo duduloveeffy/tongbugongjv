@@ -7,6 +7,7 @@ import { Truck, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ColumnMappingDialog } from './ColumnMappingDialog';
+import { H3YunSyncPanel } from './H3YunSyncPanel';
 
 // 同步品类映射到数据库
 async function syncCategoryMappings(inventoryData: InventoryItem[]) {
@@ -219,6 +220,13 @@ export function InventoryUpload({
     setPreviewData(null);
   };
 
+  // 处理氚云数据加载
+  const handleH3YunDataLoad = (data: InventoryItem[], headers: string[]) => {
+    onInventoryDataLoad(data, headers);
+    // 同步品类映射到数据库
+    syncCategoryMappings(data);
+  };
+
   return (
     <>
     <div className="grid gap-6 md:grid-cols-2">
@@ -244,7 +252,7 @@ export function InventoryUpload({
               disabled={isLoading}
             />
           </div>
-          <Button 
+          <Button
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
             className="w-full"
@@ -254,6 +262,9 @@ export function InventoryUpload({
           </Button>
         </CardContent>
       </Card>
+
+      {/* 氚云ERP同步面板 */}
+      <H3YunSyncPanel onDataLoad={handleH3YunDataLoad} />
 
       <Card>
         <CardHeader>
@@ -283,7 +294,7 @@ export function InventoryUpload({
               disabled={isLoading}
             />
           </div>
-          <Button 
+          <Button
             onClick={() => transitFileInputRef.current?.click()}
             disabled={isLoading}
             className="w-full"
