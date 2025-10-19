@@ -14,10 +14,6 @@ interface H3YunStore {
   addWarehouseMapping: (mapping: WarehouseMapping) => void;
   removeWarehouseMapping: (id: string) => void;
 
-  // SKU映射开关
-  enableSkuMapping: boolean;
-  setEnableSkuMapping: (enabled: boolean) => void;
-
   // 同步状态
   isSyncing: boolean;
   setIsSyncing: (syncing: boolean) => void;
@@ -54,10 +50,6 @@ export const useH3YunStore = create<H3YunStore>()(
           ),
         })),
 
-      // SKU映射开关
-      enableSkuMapping: false,
-      setEnableSkuMapping: (enableSkuMapping) => set({ enableSkuMapping }),
-
       // 同步状态
       isSyncing: false,
       setIsSyncing: (isSyncing) => set({ isSyncing }),
@@ -78,7 +70,6 @@ export const useH3YunStore = create<H3YunStore>()(
         set({
           warehouseMappings: [],
           lastSyncTime: null,
-          enableSkuMapping: false,
         }),
     }),
     {
@@ -87,7 +78,6 @@ export const useH3YunStore = create<H3YunStore>()(
       partialize: (state) => ({
         warehouseMappings: state.warehouseMappings,
         lastSyncTime: state.lastSyncTime,
-        enableSkuMapping: state.enableSkuMapping,
       }),
     }
   )

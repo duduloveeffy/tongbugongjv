@@ -11,9 +11,7 @@ import {
 } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Database, CheckCircle2, AlertCircle, RefreshCw, Link2 } from 'lucide-react';
+import { Database, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useH3YunStore } from '@/store/h3yun';
 import type { InventoryItem } from '@/lib/inventory-utils';
@@ -36,8 +34,6 @@ interface H3YunConfigDisplay {
 export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
   const {
     warehouseMappings,
-    enableSkuMapping,
-    setEnableSkuMapping,
     isSyncing,
     setIsSyncing,
     syncProgress,
@@ -50,7 +46,6 @@ export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
     isConfigured: false,
   });
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
-  const [isTestingMapping, setIsTestingMapping] = useState(false);
 
   // 加载配置信息
   useEffect(() => {
@@ -74,40 +69,6 @@ export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
     }
   };
 
-  // 测试SKU映射表访问
-  const handleTestMapping = async () => {
-    if (!configStatus.isConfigured) {
-      toast.error('氚云 ERP 配置未完成，请联系管理员');
-      return;
-    }
-
-    setIsTestingMapping(true);
-    try {
-      const response = await fetch('/api/h3yun/test-sku-mapping');
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success('SKU映射表访问成功！', {
-          description: `发现 ${result.stats.valid} 条有效映射记录（共 ${result.stats.total} 条）`,
-          duration: 5000,
-        });
-        console.log('[SKU Mapping Test] 样本数据:', result.stats.samples);
-      } else {
-        toast.error('SKU映射表访问失败', {
-          description: result.error,
-          duration: 8000,
-        });
-        console.error('[SKU Mapping Test] 故障排查:', result.troubleshooting);
-      }
-    } catch (error) {
-      toast.error('测试失败', {
-        description: error instanceof Error ? error.message : '未知错误',
-      });
-    } finally {
-      setIsTestingMapping(false);
-    }
-  };
-
   // 同步库存数据
   const handleSync = async () => {
     if (!configStatus.isConfigured) {
@@ -116,7 +77,7 @@ export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
     }
 
     setIsSyncing(true);
-    setSyncProgress({ current: 0, total: 0, status: enableSkuMapping ? '正在连接氚云ERP并获取SKU映射...' : '正在连接氚云ERP...' });
+    setSyncProgress({ current: 0, total: 0, status: '正在连接氚云ERP...' });
 
     try {
       const response = await fetch('/api/h3yun/inventory', {
@@ -124,7 +85,7 @@ export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           warehouseMappings,
-          enableSkuMapping,
+          enableSkuMapping: false, // 固定为 false，不使用 SKU 映射
           // pageSize 使用后端默认值 500
         }),
       });
@@ -132,16 +93,7 @@ export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
       if (!response.ok) {
         const error = await response.json();
         const errorMessage = error.error || '同步失败';
-
-        // 如果是SKU映射相关错误，提示用户禁用SKU映射
-        if (enableSkuMapping && errorMessage.includes('SKU映射表')) {
-          toast.error(`${errorMessage}`, {
-            duration: 8000,
-            description: '您可以尝试关闭"启用SKU映射"开关后重新同步',
-          });
-        } else {
-          toast.error(errorMessage);
-        }
+        toast.error(errorMessage);
         throw new Error(errorMessage);
       }
 
@@ -239,56 +191,6 @@ export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
             <span className="text-sm">氚云 ERP 已配置</span>
           </div>
         )}
-
-        {/* SKU映射开关 */}
-        <div className="space-y-2 border-t pt-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="sku-mapping"
-                checked={enableSkuMapping}
-                onCheckedChange={setEnableSkuMapping}
-                disabled={isSyncing}
-              />
-              <Label htmlFor="sku-mapping" className="cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <Link2 className="h-4 w-4" />
-                  <span>启用SKU映射</span>
-                </div>
-              </Label>
-            </div>
-            <Badge variant={enableSkuMapping ? 'default' : 'outline'} className="text-xs">
-              {enableSkuMapping ? '已启用' : '未启用'}
-            </Badge>
-          </div>
-          <div className="text-xs text-muted-foreground ml-11 space-y-1">
-            <p>
-              启用后将使用氚云SKU映射表（表单编码: <code className="text-xs bg-muted px-1 py-0.5 rounded">D289302e2ae2f1be3c7425cb1dc90a87131231a</code>）
-            </p>
-            <p>
-              自动聚合WooCommerce SKU对应的多个氚云SKU库存
-            </p>
-            <details className="mt-2">
-              <summary className="cursor-pointer hover:text-foreground">查看字段要求</summary>
-              <ul className="mt-2 space-y-1 list-disc list-inside pl-2">
-                <li>F0000001: 选择销售产品 (WooCommerce SKU)</li>
-                <li>F0000002: 替换发货产品 (氚云SKU ID)</li>
-                <li>F0000003: 替换数量 (数量倍数)</li>
-              </ul>
-            </details>
-            {enableSkuMapping && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTestMapping}
-                disabled={isTestingMapping || isSyncing}
-                className="mt-2"
-              >
-                {isTestingMapping ? '测试中...' : '测试映射表访问'}
-              </Button>
-            )}
-          </div>
-        </div>
 
         {/* 同步进度 */}
         {isSyncing && syncProgress.status && (

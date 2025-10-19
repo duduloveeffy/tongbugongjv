@@ -57,6 +57,16 @@ export interface InventoryItem {
     status: string;
     stockStatus: string;
     productUrl?: string;
+    woocommerceSku?: string;  // 映射的WooCommerce SKU（如果使用了映射）
+    isMapped?: boolean;        // 是否使用了SKU映射
+    // 一对多映射：如果一个氚云SKU对应多个WooCommerce SKU，存储所有检测结果
+    allMappedResults?: Array<{
+      woocommerceSku: string;
+      isOnline: boolean;
+      status: string;
+      stockStatus: string;
+      productUrl?: string;
+    }>;
   };
   // 多站点产品数据
   multiSiteProductData?: {

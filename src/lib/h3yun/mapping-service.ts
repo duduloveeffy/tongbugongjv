@@ -37,39 +37,81 @@ export function buildMappingIndex(
 
   console.log(`[Mapping Service] 构建映射索引，共 ${mappingData.length} 条记录`);
 
+  // 【诊断】输出前3条原始数据
+  console.log('[Mapping Service] ========== 原始数据样本 ==========');
+  mappingData.slice(0, 3).forEach((item, idx) => {
+    const wooSku = item.F0000004 || item.Name;
+    const subTableData = item['D289302Fb80a39c3ff444bbfb4fb1764d4171eb3'];
+    const h3yunSkus = Array.isArray(subTableData) ? subTableData.map(s => s.Name).join(', ') : '无';
+    console.log(`  [${idx + 1}] WooCommerce SKU: ${wooSku}, H3Yun SKUs: [${h3yunSkus}]`);
+  });
+  console.log('[Mapping Service] ==========================================');
+
   let validCount = 0;
   let skippedCount = 0;
+  const SUB_TABLE_FIELD = 'D289302Fb80a39c3ff444bbfb4fb1764d4171eb3';
 
   for (const item of mappingData) {
-    const wooSku = item.F0000001?.trim();   // WooCommerce SKU
-    const h3yunSku = item.F0000002?.trim(); // 氚云型号
-    const quantity = item.F0000003 || 1;    // 数量关系
+    // WooCommerce SKU从 F0000004 字段获取
+    const wooSku = item.F0000004?.trim() || item.Name?.trim();
 
-    if (!wooSku || !h3yunSku) {
+    if (!wooSku) {
       skippedCount++;
+      console.warn(`[Mapping Service] 跳过记录（无WooCommerce SKU）: ${item.ObjectId}`);
       continue;
     }
 
-    const relation: SkuMappingRelation = {
-      h3yunSku,
-      woocommerceSku: wooSku,
-      quantity,
-    };
-
-    // 构建氚云 → WooCommerce 映射（支持一对多）
-    if (!h3yunToWoo.has(h3yunSku)) {
-      h3yunToWoo.set(h3yunSku, []);
+    // 氚云SKU从子表中获取
+    const subTableData = item[SUB_TABLE_FIELD];
+    if (!subTableData || !Array.isArray(subTableData) || subTableData.length === 0) {
+      skippedCount++;
+      console.warn(`[Mapping Service] 跳过记录（无子表数据）: ${wooSku}`);
+      continue;
     }
-    h3yunToWoo.get(h3yunSku)!.push(relation);
 
-    // 构建 WooCommerce → 氚云映射（一对一）
-    wooToH3yun.set(wooSku, relation);
+    // 遍历子表，每个氚云SKU都建立映射
+    for (const subItem of subTableData) {
+      const h3yunSku = subItem.Name?.trim(); // 氚云SKU型号
+      const quantity = subItem.F0000003 || 1;  // 数量倍数
 
-    validCount++;
+      if (!h3yunSku) {
+        continue;
+      }
+
+      const relation: SkuMappingRelation = {
+        h3yunSku,
+        woocommerceSku: wooSku,
+        quantity,
+      };
+
+      // 构建氚云 → WooCommerce 映射（支持一对多）
+      if (!h3yunToWoo.has(h3yunSku)) {
+        h3yunToWoo.set(h3yunSku, []);
+      }
+      h3yunToWoo.get(h3yunSku)!.push(relation);
+
+      // 构建 WooCommerce → 氚云映射（一对一）
+      wooToH3yun.set(wooSku, relation);
+
+      validCount++;
+      console.log(`[Mapping Service] 映射: ${h3yunSku} → ${wooSku} (数量: ${quantity})`);
+    }
   }
 
   console.log(`[Mapping Service] 索引构建完成: 有效=${validCount}, 跳过=${skippedCount}`);
   console.log(`[Mapping Service] 氚云SKU数: ${h3yunToWoo.size}, WooCommerce SKU数: ${wooToH3yun.size}`);
+
+  // 【诊断】输出一对多映射的详细信息
+  console.log('[Mapping Service] ========== 一对多映射诊断 ==========');
+  let oneToManyCount = 0;
+  for (const [h3yunSku, relations] of h3yunToWoo.entries()) {
+    if (relations.length > 1) {
+      oneToManyCount++;
+      console.log(`[一对多] ${h3yunSku} → [${relations.map(r => r.woocommerceSku).join(', ')}]`);
+    }
+  }
+  console.log(`[Mapping Service] 发现 ${oneToManyCount} 个一对多映射`);
+  console.log('[Mapping Service] ==========================================');
 
   return { h3yunToWoo, wooToH3yun };
 }

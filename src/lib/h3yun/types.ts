@@ -104,12 +104,23 @@ export interface H3YunSyncResult {
   };
 }
 
+// SKU映射子表项（氚云SKU详情）
+export interface H3YunSkuMappingSubItem {
+  ObjectId: string;              // 子表记录ID
+  Name: string;                  // 氚云SKU型号 (如 SU-16)
+  ParentObjectId: string;        // 父记录ID
+  F0000002?: string;             // 氚云产品ID
+  F0000003?: number;             // 替换数量 (quantity multiplier)
+}
+
 // SKU映射业务对象（氚云SKU映射表）
 export interface H3YunSkuMappingObject {
   ObjectId: string;              // 记录ID
-  F0000001?: string;             // 选择销售产品 (WooCommerce SKU)
-  F0000002?: string;             // 替换发货产品 (氚云SKU ID)
-  F0000003?: number;             // 替换数量 (quantity multiplier)
+  Name: string;                  // 显示名称 (WooCommerce SKU)
+  F0000001?: string;             // WooCommerce产品ID (ObjectId)
+  F0000004?: string;             // WooCommerce SKU文本
+  // 子表字段：氚云SKU映射列表
+  D289302Fb80a39c3ff444bbfb4fb1764d4171eb3?: H3YunSkuMappingSubItem[];
   [key: string]: any;
 }
 

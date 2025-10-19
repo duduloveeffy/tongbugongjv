@@ -263,11 +263,15 @@ export function InventoryTable({
                       </Button>
                       <div className="flex flex-col">
                         <span>{item.产品代码}</span>
-                        {item.productData?.isMapped && item.productData?.woocommerceSku && (
+                        {item.productData?.isMapped && item.productData?.allMappedResults && item.productData.allMappedResults.length > 0 ? (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            → WooCommerce: {item.productData.allMappedResults.map(r => r.woocommerceSku).join(', ')}
+                          </span>
+                        ) : item.productData?.isMapped && item.productData?.woocommerceSku ? (
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
                             → WooCommerce: {item.productData.woocommerceSku}
                           </span>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </td>

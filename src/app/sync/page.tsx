@@ -291,21 +291,59 @@ export default function SyncPage() {
         const batchResults = await Promise.all(batchPromises);
         let errorCount = 0;
 
-        // 【修改】Process results - 将结果关联到原始氚云SKU
+        // 【修改】Process results - 将结果关联到原始氚云SKU（支持一对多映射）
         batchResults.forEach(result => {
           if (result.success && result.products.length > 0) {
             const product = result.products[0];
             const originalH3yunSku = skuDetectionMap.get(result.sku) || result.sku;
+            const isMapped = result.sku !== originalH3yunSku;
 
-            // 将检测结果存储到原始氚云SKU
-            productDataMap.set(originalH3yunSku, {
+            // 获取或创建该氚云SKU的产品数据
+            const existingData = productDataMap.get(originalH3yunSku);
+
+            const newResult = {
+              woocommerceSku: result.sku,
               isOnline: product.status === 'publish',
               status: product.status,
               stockStatus: product.stock_status,
               productUrl: product.permalink,
-              woocommerceSku: result.sku, // 【新增】记录映射的WooCommerce SKU
-              isMapped: result.sku !== originalH3yunSku, // 【新增】标记是否使用了映射
-            });
+            };
+
+            if (isMapped) {
+              // 使用了映射：需要支持一对多
+              if (existingData?.allMappedResults) {
+                // 已有其他映射结果，追加到数组
+                existingData.allMappedResults.push(newResult);
+                // 更新主状态：如果任一映射SKU在线，则标记为在线
+                if (newResult.isOnline) {
+                  existingData.isOnline = true;
+                  existingData.status = newResult.status;
+                  existingData.stockStatus = newResult.stockStatus;
+                  existingData.productUrl = newResult.productUrl;
+                }
+              } else {
+                // 第一次检测到映射结果
+                productDataMap.set(originalH3yunSku, {
+                  isOnline: newResult.isOnline,
+                  status: newResult.status,
+                  stockStatus: newResult.stockStatus,
+                  productUrl: newResult.productUrl,
+                  woocommerceSku: result.sku,
+                  isMapped: true,
+                  allMappedResults: [newResult],
+                });
+              }
+            } else {
+              // 未使用映射：直接存储（一对一）
+              productDataMap.set(originalH3yunSku, {
+                isOnline: newResult.isOnline,
+                status: newResult.status,
+                stockStatus: newResult.stockStatus,
+                productUrl: newResult.productUrl,
+                woocommerceSku: result.sku,
+                isMapped: false,
+              });
+            }
             foundCount++;
           } else {
             errorCount++;
@@ -400,37 +438,85 @@ export default function SyncPage() {
     currentSyncingSkus.add(sku);
     setSyncingSkus(currentSyncingSkus);
 
-    // 【新增】检查是否有映射的WooCommerce SKU
+    // 【新增】检查是否有映射的WooCommerce SKU（支持一对多）
     const inventoryItem = inventoryData.find(item => item.产品代码 === sku);
-    const targetSku = inventoryItem?.productData?.woocommerceSku || sku;
+    const allMappedResults = inventoryItem?.productData?.allMappedResults;
 
-    if (inventoryItem?.productData?.isMapped) {
-      console.log(`[同步] 使用映射SKU: ${sku} → ${targetSku}`);
+    // 确定需要同步的所有WooCommerce SKU
+    let targetSkus: string[] = [];
+    if (allMappedResults && allMappedResults.length > 0) {
+      // 有一对多映射：同步所有映射的WooCommerce SKU
+      targetSkus = allMappedResults.map(r => r.woocommerceSku);
+      console.log(`[同步] 一对多映射: ${sku} → [${targetSkus.join(', ')}]`);
+    } else if (inventoryItem?.productData?.woocommerceSku) {
+      // 有一对一映射
+      targetSkus = [inventoryItem.productData.woocommerceSku];
+      console.log(`[同步] 使用映射SKU: ${sku} → ${targetSkus[0]}`);
+    } else {
+      // 无映射：直接使用氚云SKU
+      targetSkus = [sku];
     }
 
     try {
-      const params = new URLSearchParams({
-        siteUrl: apiConfig.siteUrl,
-        consumerKey: apiConfig.consumerKey,
-        consumerSecret: apiConfig.consumerSecret,
-        sku: targetSku, // 【修改】使用映射后的WooCommerce SKU
-        stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
-        siteId: siteId || '', // 传递站点ID用于日志记录
-      });
+      let successCount = 0;
+      let failedCount = 0;
 
-      const response = await fetch('/api/wc-update-stock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
-      });
+      // 同步所有映射的SKU
+      for (const targetSku of targetSkus) {
+        try {
+          const params = new URLSearchParams({
+            siteUrl: apiConfig.siteUrl,
+            consumerKey: apiConfig.consumerKey,
+            consumerSecret: apiConfig.consumerSecret,
+            sku: targetSku,
+            stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
+            siteId: siteId || '',
+          });
 
-      if (response.ok) {
-        const result = await response.json();
+          const response = await fetch('/api/wc-update-stock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString(),
+          });
 
-        // Update inventory data
-        setInventoryData((prevData) =>
-          prevData.map(item => {
-            if (item.产品代码 === sku) {
+          if (response.ok) {
+            successCount++;
+            console.log(`[同步成功] ${targetSku}`);
+          } else {
+            const errorData = await response.json();
+            console.error(`[同步失败] ${targetSku}:`, errorData.error);
+            failedCount++;
+          }
+        } catch (error) {
+          console.error(`[同步失败] ${targetSku}:`, error);
+          failedCount++;
+        }
+
+        // 如果有多个SKU，添加延迟避免请求过快
+        if (targetSkus.length > 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+
+      // Update inventory data
+      setInventoryData((prevData) =>
+        prevData.map(item => {
+          if (item.产品代码 === sku && item.productData) {
+            // 如果有一对多映射，更新所有映射结果的状态
+            if (item.productData.allMappedResults) {
+              const updatedResults = item.productData.allMappedResults.map(r => ({
+                ...r,
+                stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
+              }));
+              return {
+                ...item,
+                productData: {
+                  ...item.productData,
+                  stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
+                  allMappedResults: updatedResults,
+                }
+              };
+            } else {
               return {
                 ...item,
                 productData: {
@@ -439,17 +525,23 @@ export default function SyncPage() {
                 }
               };
             }
-            return item;
-          })
-        );
+          }
+          return item;
+        })
+      );
 
-        const siteName = siteId && sites.length > 0
-          ? sites.find(s => s.id === siteId)?.name || siteId
-          : '默认站点';
-        toast.success(`${sku} 已同步到 ${siteName} 为${shouldBeInStock ? '有货' : '无货'}`);
+      const siteName = siteId && sites.length > 0
+        ? sites.find(s => s.id === siteId)?.name || siteId
+        : '默认站点';
+
+      if (targetSkus.length > 1) {
+        toast.success(`${sku} 已同步 ${successCount}/${targetSkus.length} 个映射SKU到 ${siteName}`);
       } else {
-        const errorData = await response.json();
-        toast.error(`同步失败: ${errorData.error || response.statusText}`);
+        toast.success(`${sku} 已同步到 ${siteName} 为${shouldBeInStock ? '有货' : '无货'}`);
+      }
+
+      if (failedCount > 0) {
+        toast.warning(`${failedCount} 个映射SKU同步失败，请查看控制台`);
       }
     } catch (error) {
       console.error('同步失败:', error);
