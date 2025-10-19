@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createH3YunClient } from '@/lib/h3yun/client';
 import type { H3YunConfig } from '@/lib/h3yun/types';
 import { env } from '@/env';
+import { h3yunSchemaConfig } from '@/config/h3yun.config';
 
 /**
  * 测试氚云 ERP 连接
@@ -9,17 +10,17 @@ import { env } from '@/env';
  */
 export async function POST() {
   try {
-    // 从环境变量读取配置
+    // 合并配置：敏感信息从环境变量读取，SchemaCode从配置文件读取
     const config: H3YunConfig = {
       engineCode: env.H3YUN_ENGINE_CODE,
       engineSecret: env.H3YUN_ENGINE_SECRET,
-      schemaCode: env.H3YUN_INVENTORY_SCHEMA_CODE,
-      warehouseSchemaCode: env.H3YUN_WAREHOUSE_SCHEMA_CODE,
+      schemaCode: h3yunSchemaConfig.inventorySchemaCode,
+      warehouseSchemaCode: h3yunSchemaConfig.warehouseSchemaCode,
     };
 
     if (!config.engineCode || !config.engineSecret || !config.schemaCode) {
       return NextResponse.json(
-        { success: false, error: '氚云 ERP 配置未完成，请在环境变量中配置' },
+        { success: false, error: '氚云 ERP 配置未完成，请检查环境变量和配置文件' },
         { status: 500 }
       );
     }

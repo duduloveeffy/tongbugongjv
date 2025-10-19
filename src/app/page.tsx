@@ -45,12 +45,12 @@ export default function DashboardPage() {
   const quickActions = [
     {
       title: '库存分析',
-      description: '上传并分析库存数据',
+      description: '同步并分析库存数据',
       icon: Package,
       href: '/inventory',
       color: 'text-blue-600',
       bgColor: 'bg-blue-50',
-      stats: totalProducts ? `${totalProducts} 个产品` : '未上传数据',
+      stats: totalProducts ? `${totalProducts} 个产品` : '未同步数据',
     },
     {
       title: '库存同步',
@@ -212,7 +212,7 @@ export default function DashboardPage() {
                   <>
                     <CheckCircle2 className="h-5 w-5 text-green-600" />
                     <div>
-                      <p className="text-sm font-medium">库存数据已加载</p>
+                      <p className="text-sm font-medium">库存数据已同步</p>
                       <p className="text-xs text-muted-foreground">
                         {totalProducts} 个产品，{outOfStockProducts} 个缺货
                       </p>
@@ -222,9 +222,9 @@ export default function DashboardPage() {
                   <>
                     <Clock className="h-5 w-5 text-gray-400" />
                     <div>
-                      <p className="text-sm font-medium">等待上传库存数据</p>
+                      <p className="text-sm font-medium">等待同步库存数据</p>
                       <Link href="/inventory" className="text-xs text-blue-600 hover:underline">
-                        上传数据 →
+                        同步数据 →
                       </Link>
                     </div>
                   </>
@@ -269,7 +269,7 @@ export default function DashboardPage() {
           <CardContent>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li>• 首次使用请先在<Link href="/sites" className="text-blue-600 hover:underline">站点管理</Link>配置WooCommerce API</li>
-              <li>• 在<Link href="/inventory" className="text-blue-600 hover:underline">库存分析</Link>上传CSV或Excel格式的库存文件</li>
+              <li>• 在<Link href="/inventory" className="text-blue-600 hover:underline">库存分析</Link>从氚云ERP同步库存数据</li>
               <li>• 使用<Link href="/sync" className="text-blue-600 hover:underline">库存同步</Link>检测产品状态并批量同步</li>
               <li>• 通过<Link href="/sales" className="text-blue-600 hover:underline">销量检测</Link>分析多站点销售数据</li>
               <li>• 系统支持多仓库合并显示和批量操作</li>

@@ -18,6 +18,7 @@ interface InventoryFiltersProps {
   isMergedMode: boolean;
   hideZeroStock?: boolean;
   hideNormalStatus?: boolean;
+  showNeedSync?: boolean;  // 新增：只显示需要同步的产品
   onSkuFiltersChange: (value: string) => void;
   onCategoryFilterChange?: (value: string) => void;  // 保留以兼容
   onCategoryFiltersChange?: (value: string[]) => void;  // 新增：多个品类变更
@@ -26,6 +27,7 @@ interface InventoryFiltersProps {
   onMergedModeChange: (value: boolean) => void;
   onHideZeroStockChange?: (value: boolean) => void;
   onHideNormalStatusChange?: (value: boolean) => void;
+  onShowNeedSyncChange?: (value: boolean) => void;  // 新增：建议同步变更
   onClearData: () => void;
   filteredData: InventoryItem[];
   isLoading: boolean;
@@ -46,6 +48,7 @@ export function InventoryFilters({
   isMergedMode,
   hideZeroStock = false,
   hideNormalStatus = false,
+  showNeedSync = false,
   onSkuFiltersChange,
   onCategoryFilterChange,
   onCategoryFiltersChange,
@@ -54,6 +57,7 @@ export function InventoryFilters({
   onMergedModeChange,
   onHideZeroStockChange,
   onHideNormalStatusChange,
+  onShowNeedSyncChange,
   onClearData,
   filteredData,
   isLoading,
@@ -130,15 +134,52 @@ export function InventoryFilters({
           </div>
         </div>
         
-        <div className="flex items-center space-x-2">
-          <Switch
-            id="merge-mode"
-            checked={isMergedMode}
-            onCheckedChange={onMergedModeChange}
-          />
-          <Label htmlFor="merge-mode">合并相同SKU的多仓库数据</Label>
+        <div className="space-y-3">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="merge-mode"
+              checked={isMergedMode}
+              onCheckedChange={onMergedModeChange}
+            />
+            <Label htmlFor="merge-mode">合并相同SKU的多仓库数据</Label>
+          </div>
+
+          {onHideZeroStockChange && (
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="hide-zero-stock"
+                checked={hideZeroStock}
+                onCheckedChange={onHideZeroStockChange}
+              />
+              <Label htmlFor="hide-zero-stock">隐藏零库存产品</Label>
+            </div>
+          )}
+
+          {onHideNormalStatusChange && (
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="hide-normal-status"
+                checked={hideNormalStatus}
+                onCheckedChange={onHideNormalStatusChange}
+              />
+              <Label htmlFor="hide-normal-status">隐藏状态正常的产品</Label>
+            </div>
+          )}
+
+          {onShowNeedSyncChange && (
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="show-need-sync"
+                checked={showNeedSync}
+                onCheckedChange={onShowNeedSyncChange}
+              />
+              <Label htmlFor="show-need-sync" className="text-orange-600 font-medium">
+                🔄 只显示建议同步的产品
+              </Label>
+            </div>
+          )}
         </div>
-        
+
         <div className="flex flex-wrap gap-2">
           <Button 
             onClick={handleExport}

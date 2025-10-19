@@ -85,14 +85,18 @@ interface InventoryStore {
   // 库存数据
   inventoryData: InventoryItem[];
   setInventoryData: (data: InventoryItem[] | ((prev: InventoryItem[]) => InventoryItem[])) => void;
-  
+
   // 选中的SKU用于同步
   selectedSkusForSync: Set<string>;
   setSelectedSkusForSync: (skus: Set<string>) => void;
-  
+
   // 正在同步的SKU
   syncingSkus: Set<string>;
   setSyncingSkus: (skus: Set<string>) => void;
+
+  // 单站点同步选中的站点
+  selectedSiteForSync: string | null;
+  setSelectedSiteForSync: (siteId: string | null) => void;
   
   // 筛选状态
   filters: {
@@ -168,11 +172,15 @@ export const useInventoryStore = create<InventoryStore>()(
       // 选中的SKU用于同步
       selectedSkusForSync: new Set(),
       setSelectedSkusForSync: (selectedSkusForSync) => set({ selectedSkusForSync }),
-      
+
       // 正在同步的SKU
       syncingSkus: new Set(),
       setSyncingSkus: (syncingSkus) => set({ syncingSkus }),
-      
+
+      // 单站点同步选中的站点
+      selectedSiteForSync: null,
+      setSelectedSiteForSync: (selectedSiteForSync) => set({ selectedSiteForSync }),
+
       // 筛选状态
       filters: {
         isMergedMode: true,
@@ -294,6 +302,8 @@ export const useInventoryStore = create<InventoryStore>()(
         salesDetectionSites: state.salesDetectionSites,
         filters: state.filters,
         sortConfig: state.sortConfig,
+        isProductDetectionEnabled: state.isProductDetectionEnabled,
+        selectedSiteForSync: state.selectedSiteForSync,
       }),
     }
   )

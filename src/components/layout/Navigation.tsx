@@ -37,7 +37,7 @@ const navigationItems = [
     description: '系统概览'
   },
   {
-    name: '库存分析',
+    name: '补货分析',
     href: '/inventory',
     icon: Package,
     description: '库存数据分析与管理'

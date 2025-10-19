@@ -7,6 +7,7 @@ import type {
   H3YunLoadRequest,
   H3YunFilter,
   H3YunBizObject,
+  H3YunSkuMappingObject,
 } from './types';
 
 export class H3YunClient {
@@ -226,6 +227,82 @@ export class H3YunClient {
 
     console.log(`[H3Yun Client] 仓库名称获取完成，成功 ${warehouseMap.size}/${warehouseIds.length} 个`);
     return warehouseMap;
+  }
+
+  /**
+   * 获取所有SKU映射数据
+   * @param pageSize 分页大小，默认500
+   * @returns SKU映射对象数组
+   */
+  async fetchSkuMappings(
+    pageSize = 500,
+    onProgress?: (current: number, status: string) => void
+  ): Promise<H3YunSkuMappingObject[]> {
+    const skuMappingSchemaCode = this.config.skuMappingSchemaCode || 'e2ae2f1be3c7425cb1dc90a87131231a';
+    console.log(`[H3Yun Client] 开始获取SKU映射表，表单编码: ${skuMappingSchemaCode}`);
+
+    // 临时保存原schemaCode，使用映射表编码
+    const originalSchemaCode = this.config.schemaCode;
+    this.config.schemaCode = skuMappingSchemaCode;
+
+    try {
+      // 先测试映射表是否可访问（只请求1条记录）
+      console.log(`[H3Yun Client] 测试SKU映射表访问权限...`);
+      try {
+        await this.loadBizObjects(0, 1);
+      } catch (testError) {
+        console.error(`[H3Yun Client] SKU映射表访问测试失败:`, testError);
+        throw new Error(`无法访问SKU映射表 (表单编码: ${skuMappingSchemaCode})，请检查表单编码是否正确或是否有访问权限`);
+      }
+      console.log(`[H3Yun Client] SKU映射表访问测试成功`);
+
+      const allMappings: H3YunSkuMappingObject[] = [];
+      let fromRow = 0;
+      let hasMore = true;
+      let batchCount = 0;
+
+      while (hasMore) {
+        batchCount++;
+        onProgress?.(allMappings.length, `正在获取第 ${batchCount} 批SKU映射...`);
+
+        console.log(`[H3Yun Client] SKU映射第 ${batchCount} 批：fromRow=${fromRow}, toRow=${fromRow + pageSize}`);
+
+        const response = await this.loadBizObjects(fromRow, fromRow + pageSize);
+
+        if (!response.ReturnData?.BizObjectArray) {
+          console.log(`[H3Yun Client] SKU映射第 ${batchCount} 批：无数据返回`);
+          break;
+        }
+
+        const batch = response.ReturnData.BizObjectArray as unknown as H3YunSkuMappingObject[];
+        console.log(`[H3Yun Client] SKU映射第 ${batchCount} 批：返回 ${batch.length} 条记录`);
+
+        if (batch.length === 0) {
+          hasMore = false;
+        } else {
+          allMappings.push(...batch);
+          fromRow += pageSize;
+
+          if (batch.length < pageSize) {
+            console.log(`[H3Yun Client] SKU映射第 ${batchCount} 批：已到最后一批`);
+            hasMore = false;
+          }
+        }
+
+        // 避免API限流
+        if (hasMore) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+
+      console.log(`[H3Yun Client] SKU映射获取完成，共 ${allMappings.length} 条记录`);
+      onProgress?.(allMappings.length, `SKU映射获取完成，共 ${allMappings.length} 条`);
+
+      return allMappings;
+    } finally {
+      // 恢复原schemaCode
+      this.config.schemaCode = originalSchemaCode;
+    }
   }
 }
 

@@ -2,7 +2,6 @@
 
 import { PageLayout } from '@/components/layout/PageLayout';
 import { ProductSyncControls } from '@/components/sync/ProductSyncControls';
-import { MultiSiteSyncControls } from '@/components/sync/MultiSiteSyncControls';
 import { InventoryTable } from '@/components/inventory/InventoryTable';
 import { InventoryFilters } from '@/components/inventory/InventoryFilters';
 import { useInventoryStore } from '@/store/inventory';
@@ -21,8 +20,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { InfoIcon } from 'lucide-react';
 
 export default function SyncPage() {
-  const [selectedSiteForSync, setSelectedSiteForSync] = useState<string | null>(null);
-
   // Multisite store
   const { sites, fetchSites } = useMultiSiteStore();
 
@@ -54,6 +51,9 @@ export default function SyncPage() {
     isProductDetectionLoading: isProductLoading,
     setIsProductDetectionLoading: setIsProductLoading,
     updateInventoryItem,
+    clearInventoryData,
+    selectedSiteForSync,
+    setSelectedSiteForSync,
   } = useInventoryStore();
 
   // WooCommerce store
@@ -66,6 +66,26 @@ export default function SyncPage() {
   useEffect(() => {
     fetchSites();
   }, [fetchSites]);
+
+  // 默认启用产品检测功能
+  useEffect(() => {
+    if (!isProductDetectionEnabled && inventoryData.length > 0) {
+      setIsProductDetectionEnabled(true);
+    }
+  }, [inventoryData.length, isProductDetectionEnabled, setIsProductDetectionEnabled]);
+
+  // 智能站点选择：确保选择的站点有效，否则选择第一个可用站点
+  useEffect(() => {
+    if (sites.length > 0) {
+      if (!selectedSiteForSync) {
+        // 如果没有选择站点，自动选择第一个
+        setSelectedSiteForSync(sites[0].id);
+      } else if (!sites.find(s => s.id === selectedSiteForSync)) {
+        // 如果选择的站点不存在（可能被删除），选择第一个可用站点
+        setSelectedSiteForSync(sites[0].id);
+      }
+    }
+  }, [sites, selectedSiteForSync, setSelectedSiteForSync]);
 
   // Process inventory data
   const processedInventoryData = useMemo(() => {
@@ -415,6 +435,15 @@ export default function SyncPage() {
     setSelectedSkusForSync(newSelection);
   };
 
+  // Clear data handler
+  const handleClearData = useCallback(() => {
+    if (confirm('确定要清空所有库存数据吗？此操作无法撤销。')) {
+      clearInventoryData();
+      setSelectedSkusForSync(new Set());
+      toast.success('数据已清空');
+    }
+  }, [clearInventoryData, setSelectedSkusForSync]);
+
   return (
     <PageLayout
       title="库存同步"
@@ -430,67 +459,47 @@ export default function SyncPage() {
           </Alert>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <ProductSyncControls
-            isEnabled={isProductDetectionEnabled}
-            isLoading={isProductLoading}
-            progress={productDetectionProgress}
-            selectedSkusForSync={selectedSkusForSync}
-            onToggle={setIsProductDetectionEnabled}
-            onStartDetection={handleProductDetection}
-            onBatchSync={handleBatchSync}
-            filteredData={filteredInventoryData}
-            sites={sites}
-            selectedSiteId={selectedSiteForSync}
-            onSiteChange={setSelectedSiteForSync}
-          />
+        {/* 单站点库存同步 */}
+        <ProductSyncControls
+          isEnabled={isProductDetectionEnabled}
+          isLoading={isProductLoading}
+          progress={productDetectionProgress}
+          selectedSkusForSync={selectedSkusForSync}
+          onToggle={setIsProductDetectionEnabled}
+          onStartDetection={handleProductDetection}
+          onBatchSync={handleBatchSync}
+          filteredData={filteredInventoryData}
+          sites={sites}
+          selectedSiteId={selectedSiteForSync}
+          onSiteChange={setSelectedSiteForSync}
+        />
 
-          <MultiSiteSyncControls
-            filteredData={filteredInventoryData}
-            selectedSkus={selectedSkusForSync}
-            onSkuSelectionChange={handleSkuSelectionChange}
-          />
-        </div>
-
-        {/* Simple filters for sync page */}
-        <div className="rounded-lg border p-4 space-y-4">
-          <h3 className="font-medium">快速筛选</h3>
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={hideZeroStock || false}
-                onChange={(e) => setFilters({ hideZeroStock: e.target.checked })}
-              />
-              隐藏零库存
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={hideNormalStatus || false}
-                onChange={(e) => setFilters({ hideNormalStatus: e.target.checked })}
-              />
-              只显示异常状态
-            </label>
-            <label className="flex items-center gap-2 text-orange-600 font-medium">
-              <input
-                type="checkbox"
-                checked={showNeedSync || false}
-                onChange={(e) => setFilters({ showNeedSync: e.target.checked })}
-                className="accent-orange-600"
-              />
-              🔄 建议同步
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={isMergedMode || false}
-                onChange={(e) => setFilters({ isMergedMode: e.target.checked })}
-              />
-              合并仓库显示
-            </label>
-          </div>
-        </div>
+        {/* Data filters */}
+        <InventoryFilters
+          skuFilters={skuFilters}
+          categoryFilter={categoryFilter}
+          categoryFilters={categoryFilters}
+          inventoryData={processedInventoryData}
+          excludeSkuPrefixes={excludeSkuPrefixes}
+          excludeWarehouses={excludeWarehouses}
+          isMergedMode={isMergedMode}
+          hideZeroStock={hideZeroStock}
+          hideNormalStatus={hideNormalStatus}
+          showNeedSync={showNeedSync}
+          onSkuFiltersChange={(value) => setFilters({ skuFilter: value })}
+          onCategoryFilterChange={(value) => setFilters({ categoryFilter: value })}
+          onCategoryFiltersChange={(value) => setFilters({ categoryFilters: value })}
+          onExcludeSkuPrefixesChange={(value) => setFilters({ excludeSkuPrefixes: value })}
+          onExcludeWarehousesChange={(value) => setFilters({ excludeWarehouses: value })}
+          onMergedModeChange={(value) => setFilters({ isMergedMode: value })}
+          onHideZeroStockChange={(value) => setFilters({ hideZeroStock: value })}
+          onHideNormalStatusChange={(value) => setFilters({ hideNormalStatus: value })}
+          onShowNeedSyncChange={(value) => setFilters({ showNeedSync: value })}
+          onClearData={handleClearData}
+          filteredData={filteredInventoryData}
+          isLoading={isProductLoading}
+          isSalesDetectionEnabled={false}
+        />
 
         <InventoryTable
           data={filteredInventoryData}

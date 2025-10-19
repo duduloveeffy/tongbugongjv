@@ -5,10 +5,16 @@ import type { InventoryItem } from '../inventory-utils';
 
 // 氚云API配置
 export interface H3YunConfig {
+  // 敏感信息（必需，从环境变量 .env.local 读取）
   engineCode: string;
   engineSecret: string;
+
+  // 表单编码（从配置文件 src/config/h3yun.config.ts 读取）
   schemaCode: string; // 库存表单编码
-  warehouseSchemaCode?: string; // 仓库表单编码 (可选，默认 svsphqmtteooobudbgy)
+  warehouseSchemaCode?: string; // 仓库表单编码
+  skuMappingSchemaCode?: string; // SKU映射表单编码
+
+  // 其他配置
   baseUrl?: string;
 }
 
@@ -96,4 +102,28 @@ export interface H3YunSyncResult {
     skippedRecords: number;
     processingTime: number;
   };
+}
+
+// SKU映射业务对象（氚云SKU映射表）
+export interface H3YunSkuMappingObject {
+  ObjectId: string;              // 记录ID
+  F0000001?: string;             // 选择销售产品 (WooCommerce SKU)
+  F0000002?: string;             // 替换发货产品 (氚云SKU ID)
+  F0000003?: number;             // 替换数量 (quantity multiplier)
+  [key: string]: any;
+}
+
+// SKU映射关系
+export interface SkuMapping {
+  woocommerceSku: string;        // WooCommerce SKU
+  h3yunSkuId: string;            // 氚云SKU ID
+  quantity: number;              // 数量倍数 (1个WooCommerce SKU对应多少个氚云SKU)
+}
+
+// SKU映射缓存（用于快速查询）
+export interface SkuMappingCache {
+  // WooCommerce SKU -> H3Yun SKU映射列表
+  wooToH3: Map<string, SkuMapping[]>;
+  // H3Yun SKU ID -> WooCommerce SKU映射列表
+  h3ToWoo: Map<string, SkuMapping[]>;
 }

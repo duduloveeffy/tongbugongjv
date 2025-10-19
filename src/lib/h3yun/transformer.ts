@@ -1,9 +1,10 @@
 /**
  * 氚云数据到系统格式转换器
  */
-import type { H3YunBizObject, WarehouseMapping, H3YunSyncResult } from './types';
+import type { H3YunBizObject, WarehouseMapping, H3YunSyncResult, H3YunSkuMappingObject } from './types';
 import type { InventoryItem } from '../inventory-utils';
 import { FIELD_MAPPINGS, validateH3YunData } from './field-mappings';
+import { buildSkuMappingCache, aggregateInventoryWithMapping } from './sku-mapping';
 
 /**
  * 仓库映射缓存
@@ -177,6 +178,53 @@ export function extractUniqueWarehouses(
   }
 
   return Array.from(warehouseIds);
+}
+
+/**
+ * 批量转换氚云数据（支持SKU映射）
+ * @param objects 氚云库存对象数组
+ * @param warehouseMappings 仓库映射（可选）
+ * @param skuMappingObjects SKU映射对象数组（可选，如果提供则启用SKU映射）
+ * @returns 转换结果
+ */
+export function transformH3YunBatchWithMapping(
+  objects: H3YunBizObject[],
+  warehouseMappings?: WarehouseMapping[],
+  skuMappingObjects?: H3YunSkuMappingObject[]
+): H3YunSyncResult {
+  console.log(`[H3Yun Transformer] 开始转换 ${objects.length} 条氚云记录（SKU映射模式: ${skuMappingObjects ? '启用' : '关闭'}）`);
+
+  const startTime = Date.now();
+
+  // 如果提供了SKU映射对象，使用聚合计算
+  if (skuMappingObjects && skuMappingObjects.length > 0) {
+    console.log(`[H3Yun Transformer] 使用SKU映射聚合模式，映射表记录: ${skuMappingObjects.length}`);
+
+    // 构建SKU映射缓存
+    const skuMappingCache = buildSkuMappingCache(skuMappingObjects);
+
+    // 聚合计算库存
+    const aggregatedItems = aggregateInventoryWithMapping(objects, skuMappingCache);
+
+    const processingTime = Date.now() - startTime;
+
+    console.log(`[H3Yun Transformer] SKU映射聚合完成: 生成${aggregatedItems.length}个WooCommerce SKU记录, 耗时${processingTime}ms`);
+
+    return {
+      success: true,
+      data: aggregatedItems,
+      stats: {
+        totalRecords: objects.length,
+        validRecords: aggregatedItems.length,
+        skippedRecords: objects.length - aggregatedItems.length,
+        processingTime,
+      },
+    };
+  }
+
+  // 否则使用常规转换流程
+  console.log(`[H3Yun Transformer] 使用常规转换模式（无SKU映射）`);
+  return transformH3YunBatch(objects, warehouseMappings);
 }
 
 // 导出仓库缓存类供外部使用

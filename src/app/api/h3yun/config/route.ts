@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { env } from '@/env';
+import { h3yunSchemaConfig } from '@/config/h3yun.config';
 
 /**
  * 获取氚云配置信息（脱敏）
@@ -7,17 +8,17 @@ import { env } from '@/env';
  */
 export async function GET() {
   try {
-    // 检查配置是否完整
+    // 检查配置是否完整（只检查敏感信息）
     const isConfigured = !!(
       env.H3YUN_ENGINE_CODE &&
       env.H3YUN_ENGINE_SECRET &&
-      env.H3YUN_INVENTORY_SCHEMA_CODE
+      h3yunSchemaConfig.inventorySchemaCode
     );
 
     if (!isConfigured) {
       return NextResponse.json({
         isConfigured: false,
-        error: '氚云 ERP 配置未完成，请在环境变量中配置',
+        error: '氚云 ERP 配置未完成，请检查环境变量和配置文件',
       });
     }
 
@@ -33,8 +34,8 @@ export async function GET() {
       config: {
         engineCode: maskString(env.H3YUN_ENGINE_CODE),
         engineSecret: maskString(env.H3YUN_ENGINE_SECRET),
-        inventorySchemaCode: maskString(env.H3YUN_INVENTORY_SCHEMA_CODE),
-        warehouseSchemaCode: maskString(env.H3YUN_WAREHOUSE_SCHEMA_CODE),
+        inventorySchemaCode: maskString(h3yunSchemaConfig.inventorySchemaCode),
+        warehouseSchemaCode: maskString(h3yunSchemaConfig.warehouseSchemaCode),
       },
     });
   } catch (error) {

@@ -313,8 +313,8 @@ export default function InventoryPage() {
 
   return (
     <PageLayout
-      title="库存分析"
-      description="上传库存数据，查看库存状态分析和销量趋势"
+      title="补货分析"
+      description="从氚云ERP同步库存数据，查看库存状态分析和销量趋势"
     >
       <div className="space-y-6">
         <InventoryUpload

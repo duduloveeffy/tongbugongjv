@@ -2,8 +2,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { type InventoryItem, type TransitOrderItem, parseCSVFile, parseExcelFile, parseExcelPreview } from '@/lib/inventory-utils';
-import { Truck, Upload } from 'lucide-react';
+import { type InventoryItem, type TransitOrderItem, parseExcelFile, parseExcelPreview } from '@/lib/inventory-utils';
+import { Truck } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ColumnMappingDialog } from './ColumnMappingDialog';
@@ -39,15 +39,14 @@ interface InventoryUploadProps {
   isLoading: boolean;
 }
 
-export function InventoryUpload({ 
-  onInventoryDataLoad, 
+export function InventoryUpload({
+  onInventoryDataLoad,
   onTransitDataLoad,
   onTransitDataAdd,
   onTransitFileAdd,
   transitOrderCount,
-  isLoading 
+  isLoading
 }: InventoryUploadProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const transitFileInputRef = useRef<HTMLInputElement>(null);
   
   // 列映射对话框状态
@@ -60,43 +59,6 @@ export function InventoryUpload({
     rows: any[][];
     fileName: string;
   } | null>(null);
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      toast.error('请选择CSV文件');
-      return;
-    }
-
-    try {
-      const { data, headers } = await parseCSVFile(file);
-      
-      if (data.length === 0) {
-        toast.error('CSV文件为空');
-        return;
-      }
-
-      // 验证必要字段
-      const requiredFields = ['产品代码', '产品名称', '可售库存'];
-      const missingFields = requiredFields.filter(field => !headers.includes(field));
-      
-      if (missingFields.length > 0) {
-        toast.error(`CSV文件缺少必要字段: ${missingFields.join(', ')}`);
-        return;
-      }
-
-      toast.success(`成功导入 ${data.length} 条库存数据`);
-      onInventoryDataLoad(data as InventoryItem[], headers);
-      
-      // 同步品类映射到数据库
-      syncCategoryMappings(data as InventoryItem[]);
-    } catch (error) {
-      console.error('文件处理失败:', error);
-      toast.error(error instanceof Error ? error.message : '文件处理失败');
-    }
-  };
 
   const processFileWithMapping = async (
     file: File, 
@@ -230,39 +192,6 @@ export function InventoryUpload({
   return (
     <>
     <div className="grid gap-6 md:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            库存数据导入
-          </CardTitle>
-          <CardDescription>
-            上传CSV格式的库存数据文件（GB2312编码）
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label htmlFor="inventory-file">选择库存数据文件</Label>
-            <Input
-              id="inventory-file"
-              type="file"
-              accept=".csv"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              disabled={isLoading}
-            />
-          </div>
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading}
-            className="w-full"
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            选择CSV文件
-          </Button>
-        </CardContent>
-      </Card>
-
       {/* 氚云ERP同步面板 */}
       <H3YunSyncPanel onDataLoad={handleH3YunDataLoad} />
 
