@@ -75,11 +75,22 @@ export async function GET(request: NextRequest) {
 
       console.log(`[H3Yun SKU Mapping Test] 统计: 有效=${stats.valid}, 无效=${stats.invalid}`);
 
+      // 【诊断】返回前3条原始记录供检查
+      const rawSamples = mappings.slice(0, 3).map(m => ({
+        ObjectId: m.ObjectId,
+        allFields: Object.keys(m),
+        F0000001: m.F0000001,
+        F0000002: m.F0000002,
+        F0000003: m.F0000003,
+        fullData: m,
+      }));
+
       return NextResponse.json({
         success: true,
         message: 'SKU映射表访问成功',
         schemaCode: config.skuMappingSchemaCode,
         stats,
+        rawSamples, // 【新增】原始数据样本
       });
     } catch (error) {
       console.error('[H3Yun SKU Mapping Test] 访问失败:', error);

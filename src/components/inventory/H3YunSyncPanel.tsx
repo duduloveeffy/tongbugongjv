@@ -263,7 +263,7 @@ export function H3YunSyncPanel({ onDataLoad }: H3YunSyncPanelProps) {
           </div>
           <div className="text-xs text-muted-foreground ml-11 space-y-1">
             <p>
-              启用后将使用氚云SKU映射表（表单编码: <code className="text-xs bg-muted px-1 py-0.5 rounded">e2ae2f1be3c7425cb1dc90a87131231a</code>）
+              启用后将使用氚云SKU映射表（表单编码: <code className="text-xs bg-muted px-1 py-0.5 rounded">D289302e2ae2f1be3c7425cb1dc90a87131231a</code>）
             </p>
             <p>
               自动聚合WooCommerce SKU对应的多个氚云SKU库存

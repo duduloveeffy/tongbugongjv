@@ -41,7 +41,7 @@ export const h3yunSchemaConfig: H3YunSchemaConfig = {
   warehouseSchemaCode: process.env.H3YUN_WAREHOUSE_SCHEMA_CODE || 'svsphqmtteooobudbgy',
 
   // SKU映射表编码
-  skuMappingSchemaCode: process.env.H3YUN_SKU_MAPPING_SCHEMA_CODE || 'e2ae2f1be3c7425cb1dc90a87131231a',
+  skuMappingSchemaCode: process.env.H3YUN_SKU_MAPPING_SCHEMA_CODE || 'D289302e2ae2f1be3c7425cb1dc90a87131231a',
 };
 
 /**

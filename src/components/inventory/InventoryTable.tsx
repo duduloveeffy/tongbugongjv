@@ -261,7 +261,14 @@ export function InventoryTable({
                       >
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
-                      {item.产品代码}
+                      <div className="flex flex-col">
+                        <span>{item.产品代码}</span>
+                        {item.productData?.isMapped && item.productData?.woocommerceSku && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            → WooCommerce: {item.productData.woocommerceSku}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className={`sticky ${isProductDetectionEnabled ? 'left-[168px]' : 'left-[120px]'} z-10 whitespace-nowrap bg-background p-2 align-middle shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] group-hover:bg-muted/50`}>

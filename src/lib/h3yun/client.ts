@@ -238,7 +238,7 @@ export class H3YunClient {
     pageSize = 500,
     onProgress?: (current: number, status: string) => void
   ): Promise<H3YunSkuMappingObject[]> {
-    const skuMappingSchemaCode = this.config.skuMappingSchemaCode || 'e2ae2f1be3c7425cb1dc90a87131231a';
+    const skuMappingSchemaCode = this.config.skuMappingSchemaCode || 'D289302e2ae2f1be3c7425cb1dc90a87131231a';
     console.log(`[H3Yun Client] 开始获取SKU映射表，表单编码: ${skuMappingSchemaCode}`);
 
     // 临时保存原schemaCode，使用映射表编码

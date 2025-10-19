@@ -180,6 +180,55 @@ export default function SyncPage() {
     setIsProductLoading(true);
     setProductDetectionProgress('开始检测产品上架状态...');
 
+    // 【新增】1. 加载SKU映射表
+    let mappingIndex: any = null;
+    try {
+      setProductDetectionProgress('正在加载SKU映射表...');
+      const { buildMappingIndex, getWooCommerceSkus } = await import('@/lib/h3yun/mapping-service');
+
+      const mappingResponse = await fetch('/api/h3yun/sku-mappings');
+      if (mappingResponse.ok) {
+        const mappingData = await mappingResponse.json();
+        if (mappingData.success && mappingData.mappings.length > 0) {
+          mappingIndex = buildMappingIndex(mappingData.mappings);
+          console.log(`[产品检测] SKU映射加载成功: ${mappingData.count}条`);
+        } else {
+          console.log('[产品检测] 映射表为空，使用原始SKU模式');
+        }
+      }
+    } catch (error) {
+      console.warn('[产品检测] SKU映射加载失败，将使用原始SKU', error);
+    }
+
+    // 【新增】2. 扩展SKU列表（应用映射）
+    const skuDetectionMap = new Map<string, string>(); // WooCommerce SKU → 氚云SKU
+    let detectionSkus: string[] = [];
+
+    if (mappingIndex) {
+      const { getWooCommerceSkus } = await import('@/lib/h3yun/mapping-service');
+
+      for (const h3yunSku of skus) {
+        const wooSkus = getWooCommerceSkus(h3yunSku, mappingIndex);
+        if (wooSkus.length > 0) {
+          // 有映射：使用WooCommerce SKU检测
+          for (const wooSku of wooSkus) {
+            detectionSkus.push(wooSku);
+            skuDetectionMap.set(wooSku, h3yunSku);
+          }
+          console.log(`[映射] ${h3yunSku} → [${wooSkus.join(', ')}]`);
+        } else {
+          // 无映射：使用原始氚云SKU
+          detectionSkus.push(h3yunSku);
+          skuDetectionMap.set(h3yunSku, h3yunSku);
+        }
+      }
+      console.log(`[产品检测] 原始SKU: ${skus.length}, 映射扩展后: ${detectionSkus.length}`);
+    } else {
+      // 无映射表：直接使用原始SKU
+      detectionSkus = [...skus];
+      skus.forEach(sku => skuDetectionMap.set(sku, sku));
+    }
+
     // Adaptive concurrency control parameters
     let batchSize = 100;
     let batchDelay = 20;
@@ -198,9 +247,10 @@ export default function SyncPage() {
       let foundCount = 0;
       const productDataMap = new Map<string, any>();
 
-      for (let i = 0; i < skus.length; i += batchSize) {
-        const batch = skus.slice(i, i + batchSize);
-        setProductDetectionProgress(`检测进度: ${i + 1}-${Math.min(i + batchSize, skus.length)}/${skus.length} (批次大小: ${batchSize}, 延迟: ${batchDelay}ms)`);
+      // 【修改】使用扩展后的SKU列表进行检测
+      for (let i = 0; i < detectionSkus.length; i += batchSize) {
+        const batch = detectionSkus.slice(i, i + batchSize);
+        setProductDetectionProgress(`检测进度: ${i + 1}-${Math.min(i + batchSize, detectionSkus.length)}/${detectionSkus.length} (批次大小: ${batchSize}, 延迟: ${batchDelay}ms)`);
 
         const batchPromises = batch.map(async (sku) => {
           for (let retry = 0; retry < retryCount; retry++) {
@@ -241,15 +291,20 @@ export default function SyncPage() {
         const batchResults = await Promise.all(batchPromises);
         let errorCount = 0;
 
-        // Process results
+        // 【修改】Process results - 将结果关联到原始氚云SKU
         batchResults.forEach(result => {
           if (result.success && result.products.length > 0) {
             const product = result.products[0];
-            productDataMap.set(result.sku, {
+            const originalH3yunSku = skuDetectionMap.get(result.sku) || result.sku;
+
+            // 将检测结果存储到原始氚云SKU
+            productDataMap.set(originalH3yunSku, {
               isOnline: product.status === 'publish',
               status: product.status,
               stockStatus: product.stock_status,
               productUrl: product.permalink,
+              woocommerceSku: result.sku, // 【新增】记录映射的WooCommerce SKU
+              isMapped: result.sku !== originalH3yunSku, // 【新增】标记是否使用了映射
             });
             foundCount++;
           } else {
@@ -345,12 +400,20 @@ export default function SyncPage() {
     currentSyncingSkus.add(sku);
     setSyncingSkus(currentSyncingSkus);
 
+    // 【新增】检查是否有映射的WooCommerce SKU
+    const inventoryItem = inventoryData.find(item => item.产品代码 === sku);
+    const targetSku = inventoryItem?.productData?.woocommerceSku || sku;
+
+    if (inventoryItem?.productData?.isMapped) {
+      console.log(`[同步] 使用映射SKU: ${sku} → ${targetSku}`);
+    }
+
     try {
       const params = new URLSearchParams({
         siteUrl: apiConfig.siteUrl,
         consumerKey: apiConfig.consumerKey,
         consumerSecret: apiConfig.consumerSecret,
-        sku: sku,
+        sku: targetSku, // 【修改】使用映射后的WooCommerce SKU
         stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
         siteId: siteId || '', // 传递站点ID用于日志记录
       });

@@ -23,6 +23,23 @@ export function buildSkuMappingCache(
 
   console.log(`[SKU Mapping] 开始构建SKU映射缓存，共 ${mappingObjects.length} 条记录`);
 
+  // 【诊断】打印前3条完整记录
+  console.log('[SKU Mapping] 原始数据样本:');
+  mappingObjects.slice(0, 3).forEach((obj, idx) => {
+    console.log(`  记录 ${idx + 1}:`, JSON.stringify(obj, null, 2));
+  });
+
+  // 【诊断】统计字段使用情况
+  const fieldStats: Record<string, number> = {};
+  mappingObjects.forEach(obj => {
+    Object.keys(obj).forEach(key => {
+      if (obj[key] !== null && obj[key] !== undefined && obj[key] !== '') {
+        fieldStats[key] = (fieldStats[key] || 0) + 1;
+      }
+    });
+  });
+  console.log('[SKU Mapping] 字段使用统计:', fieldStats);
+
   let validMappings = 0;
   let skippedMappings = 0;
 
@@ -34,6 +51,15 @@ export function buildSkuMappingCache(
     // 验证必填字段
     if (!woocommerceSku || !h3yunSkuId) {
       skippedMappings++;
+      // 【诊断】打印第一条被跳过的记录
+      if (skippedMappings === 1) {
+        console.log('[SKU Mapping] 第一条被跳过的记录示例:', {
+          F0000001: obj.F0000001,
+          F0000002: obj.F0000002,
+          F0000003: obj.F0000003,
+          allFields: Object.keys(obj),
+        });
+      }
       continue;
     }
 
