@@ -9,8 +9,24 @@ export const FIELD_MAPPINGS = {
   // 直接映射
   产品代码: (obj: H3YunBizObject) => obj.F0000001 || '',
   产品名称: (obj: H3YunBizObject) => obj.Name || '',
-  可售库存: (obj: H3YunBizObject) => String(obj.F0000030 || 0),
-  可售库存减去缺货占用库存: (obj: H3YunBizObject) => String(obj.F0000083 || 0),
+
+  // 库存字段 - 优先使用F0000085（可售库存），降级到F0000030（可用SKU库存）
+  可售库存: (obj: H3YunBizObject) => String(obj.F0000085 ?? obj.F0000030 ?? 0),
+
+  // 净可售库存 - 优先使用F0000085，降级到F0000083，最后计算F0000030 - F0000055
+  可售库存减去缺货占用库存: (obj: H3YunBizObject) => {
+    if (obj.F0000085 !== undefined && obj.F0000085 !== null) {
+      return String(obj.F0000085);
+    }
+    if (obj.F0000083 !== undefined && obj.F0000083 !== null) {
+      return String(obj.F0000083);
+    }
+    // 降级计算：可用库存 - 待出库
+    const available = obj.F0000030 ?? 0;
+    const pending = obj.F0000055 ?? 0;
+    return String(available - pending);
+  },
+
   规格: (obj: H3YunBizObject) => obj.F0000025 || '',
 
   // 拼接字段：产品英文名称 = 尼古丁 + " - " + flavor
@@ -37,42 +53,42 @@ export const FIELD_MAPPINGS = {
 
     return `${category} ${nicotine}`;
   },
-  三级品类: () => '',
+  三级品类: (_obj: H3YunBizObject) => '',
 
-  // 强制为0的字段
-  缺货: () => '0',
-  待出库: () => '0',
-  缺货天数: () => '0',
+  // 实际数据字段
+  缺货: (obj: H3YunBizObject) => String(obj.F0000084 ?? 0),  // 缺货排队待发
+  待出库: (obj: H3YunBizObject) => String(obj.F0000055 ?? 0),  // 待出库
+  缺货天数: (_obj: H3YunBizObject) => '0',  // 暂无对应字段
 
   // 默认为0的数值字段
-  计划库存: () => '0',
-  采购在途: () => '0',
-  退件在途: () => '0',
-  待上架: () => '0',
-  可用库存: (obj: H3YunBizObject) => String(obj.F0000030 || 0),
-  不良品: () => '0',
-  不良品待出库: () => '0',
-  预警库存: () => '0',
-  缺货订单所占可售库存: () => '0',
-  可售总库存: (obj: H3YunBizObject) => String(obj.F0000030 || 0),
+  计划库存: (_obj: H3YunBizObject) => '0',
+  采购在途: (_obj: H3YunBizObject) => '0',
+  退件在途: (_obj: H3YunBizObject) => '0',
+  待上架: (_obj: H3YunBizObject) => '0',
+  可用库存: (obj: H3YunBizObject) => String(obj.F0000030 ?? 0),
+  不良品: (_obj: H3YunBizObject) => '0',
+  不良品待出库: (_obj: H3YunBizObject) => '0',
+  预警库存: (_obj: H3YunBizObject) => '0',
+  缺货订单所占可售库存: (_obj: H3YunBizObject) => '0',
+  可售总库存: (obj: H3YunBizObject) => String(obj.F0000085 ?? obj.F0000030 ?? 0),
 
   // 其他字段
-  产品单重: () => '',
-  产品尺寸: () => '',
+  产品单重: (_obj: H3YunBizObject) => '',
+  产品尺寸: (_obj: H3YunBizObject) => '',
   仓库产品代码: (obj: H3YunBizObject) => obj.F0000001 || '',
-  推荐库位: () => '',
-  单价默认采购价: () => '',
-  款式: () => '',
-  库龄: () => '0',
+  推荐库位: (_obj: H3YunBizObject) => '',
+  单价默认采购价: (_obj: H3YunBizObject) => '',
+  款式: (_obj: H3YunBizObject) => '',
+  库龄: (_obj: H3YunBizObject) => '0',
   默认采购员: (obj: H3YunBizObject) => obj.CreatedBy || '',
-  销售负责人: () => '',
-  开发负责人: () => '',
-  pi_id: () => '',
-  可售天数: () => '0',
-  币种供应商结算: () => 'RMB',
-  采购计划: () => '0',
-  仓库代码: () => '',
-  销售状态: () => '在售',
+  销售负责人: (_obj: H3YunBizObject) => '',
+  开发负责人: (_obj: H3YunBizObject) => '',
+  pi_id: (_obj: H3YunBizObject) => '',
+  可售天数: (_obj: H3YunBizObject) => '0',
+  币种供应商结算: (_obj: H3YunBizObject) => 'RMB',
+  采购计划: (_obj: H3YunBizObject) => '0',
+  仓库代码: (_obj: H3YunBizObject) => '',
+  销售状态: (_obj: H3YunBizObject) => '在售',
 };
 
 // 必需字段验证
@@ -91,8 +107,10 @@ export function validateH3YunData(obj: H3YunBizObject): {
   const missing: string[] = [];
 
   if (!obj.F0000001) missing.push('F0000001 (产品SKU)');
-  if (obj.F0000030 === undefined && obj.F0000083 === undefined) {
-    missing.push('F0000030 或 F0000083 (库存数据)');
+
+  // 库存数据至少有一个：F0000085 (可售库存) > F0000083 (可用库存不含待出库) > F0000030 (可用SKU库存)
+  if (obj.F0000085 === undefined && obj.F0000083 === undefined && obj.F0000030 === undefined) {
+    missing.push('F0000085 或 F0000083 或 F0000030 (库存数据)');
   }
 
   return {

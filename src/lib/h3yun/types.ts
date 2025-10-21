@@ -36,6 +36,9 @@ export interface H3YunBizObject {
   F0000007: string;              // 所属仓库 (ID)
   F0000030: number;              // 可用SKU库存
   F0000083: number;              // 可用SKU库存(不含待出库)
+  F0000085: number;              // 可售库存 (= F0000030 - F0000055)
+  F0000055: number;              // 待出库
+  F0000084: number;              // 缺货排队待发
   F0000079: number;              // SKU*SKU(PCS)
   F0000065: number;              // 产品SKU(PCS)数量
 
