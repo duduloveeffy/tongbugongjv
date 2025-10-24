@@ -15,6 +15,11 @@ const PUBLIC_ROUTES = [
 // Routes that are view-only (no sensitive data)
 const VIEW_ONLY_ROUTES: string[] = [];
 
+// Cache for last_login updates to avoid excessive DB writes
+// Key: userId, Value: timestamp of last update
+const lastLoginUpdateCache = new Map<string, number>();
+const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -101,6 +106,34 @@ export async function middleware(request: NextRequest) {
   // Log API access for security monitoring
   if (process.env.NODE_ENV === 'development') {
     console.log(`✅ [API Access] User: ${session.user.email} - Path: ${pathname}`);
+  }
+
+  // Update last_login with frequency limiting
+  const userId = session.user.id;
+  const now = Date.now();
+  const lastUpdate = lastLoginUpdateCache.get(userId);
+
+  if (!lastUpdate || (now - lastUpdate) > UPDATE_INTERVAL) {
+    // Update cache immediately to prevent concurrent updates
+    lastLoginUpdateCache.set(userId, now);
+
+    // Update last_login asynchronously (don't block the request)
+    Promise.resolve().then(async () => {
+      try {
+        const { getSupabaseClient } = await import('@/lib/supabase');
+        const adminSupabase = getSupabaseClient();
+
+        if (adminSupabase) {
+          await adminSupabase
+            .from('users')
+            .update({ last_login: new Date().toISOString() })
+            .eq('id', userId);
+        }
+      } catch (error) {
+        // Silently fail - don't affect the main request
+        console.error('Failed to update last_login:', error);
+      }
+    });
   }
 
   // Create new response with updated headers

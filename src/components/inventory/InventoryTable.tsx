@@ -264,12 +264,40 @@ export function InventoryTable({
                       <div className="flex flex-col">
                         <span>{item.产品代码}</span>
                         {item.productData?.isMapped && item.productData?.allMappedResults && item.productData.allMappedResults.length > 0 ? (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            → WooCommerce: {item.productData.allMappedResults.map(r => r.woocommerceSku).join(', ')}
-                          </span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-xs text-muted-foreground flex items-center gap-1 cursor-help">
+                                  → WC: {item.productData.allMappedResults.slice(0, 2).map(r => r.woocommerceSku).join(', ')}
+                                  {item.productData.allMappedResults.length > 2 && (
+                                    <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">
+                                      +{item.productData.allMappedResults.length - 2}
+                                    </Badge>
+                                  )}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-md">
+                                <div className="space-y-1">
+                                  <p className="font-semibold mb-2">WooCommerce SKU映射 ({item.productData.allMappedResults.length}个)：</p>
+                                  <div className="grid grid-cols-1 gap-1 max-h-48 overflow-y-auto">
+                                    {item.productData.allMappedResults.map((r, idx) => (
+                                      <div key={idx} className="text-sm flex items-center gap-2">
+                                        <Badge variant={r.isOnline ? "default" : "secondary"} className="text-xs">
+                                          {r.woocommerceSku}
+                                        </Badge>
+                                        <span className="text-xs text-muted-foreground">
+                                          {r.isOnline ? '已上架' : '未上架'} · {r.stockStatus}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         ) : item.productData?.isMapped && item.productData?.woocommerceSku ? (
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            → WooCommerce: {item.productData.woocommerceSku}
+                            → WC: {item.productData.woocommerceSku}
                           </span>
                         ) : null}
                       </div>
