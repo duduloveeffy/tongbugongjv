@@ -176,6 +176,24 @@ export async function POST(request: NextRequest) {
     // Build query for comparison period if specified
     let compareOrders: any[] = [];
     if (compareStart && compareEnd) {
+      // 对比期也需要进行UTC时间调整，确保与当前期使用相同的时间范围逻辑
+      let adjustedCompareStart = compareStart;
+      let adjustedCompareEnd = compareEnd;
+
+      if (compareStart && compareStart.length === 10) {
+        adjustedCompareStart = `${compareStart}T00:00:00.000Z`;
+      }
+      if (compareEnd && compareEnd.length === 10) {
+        adjustedCompareEnd = `${compareEnd}T23:59:59.999Z`;
+      }
+
+      console.log('[Sales Query] Compare period adjusted:', {
+        originalCompareStart: compareStart,
+        originalCompareEnd: compareEnd,
+        adjustedCompareStart,
+        adjustedCompareEnd,
+      });
+
       let offset = 0;
       let hasMore = true;
 
@@ -196,8 +214,8 @@ export async function POST(request: NextRequest) {
               price
             )
           `)
-          .gte('date_created', compareStart)
-          .lte('date_created', compareEnd)
+          .gte('date_created', adjustedCompareStart)
+          .lte('date_created', adjustedCompareEnd)
           .in('status', statuses)
           .range(offset, offset + pageSize - 1)
           .order('date_created', { ascending: false });
@@ -482,42 +500,54 @@ function groupOrdersByTimeWithCompare(
     }
   };
 
-  const aggregateOrders = (orders: any[]) => {
-    const groups: Record<string, any> = {};
+  // 计算两个日期之间的天数差（用于按相对位置匹配）
+  const getDayOffset = (dateStr: string, baseDate: string): number => {
+    const date = new Date(dateStr);
+    const base = new Date(baseDate);
+    return Math.floor((date.getTime() - base.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  const aggregateOrdersWithOffset = (orders: any[], baseDate: string) => {
+    const groups: Record<number, { date: string; orders: number; revenue: number; quantity: number }> = {};
 
     orders.forEach(order => {
       const date = new Date(order.date_created);
-      const key = getDateKey(date, groupBy);
+      const dateKey = getDateKey(date, groupBy);
+      const dayOffset = getDayOffset(dateKey, baseDate);
 
-      if (!groups[key]) {
-        groups[key] = {
+      if (!groups[dayOffset]) {
+        groups[dayOffset] = {
+          date: dateKey,
           orders: 0,
           revenue: 0,
           quantity: 0,
         };
       }
 
-      groups[key].orders++;
-      groups[key].revenue += parseFloat(order.total || 0);
+      groups[dayOffset].orders++;
+      groups[dayOffset].revenue += parseFloat(order.total || 0);
 
       const orderItems = order.order_items || [];
       orderItems.forEach((item: any) => {
-        groups[key].quantity += parseInt(item.quantity || 0);
+        if (groups[dayOffset]) {
+          groups[dayOffset].quantity += parseInt(item.quantity || 0);
+        }
       });
     });
 
     return groups;
   };
 
-  const currentGroups = aggregateOrders(currentOrders);
-  const compareGroups = aggregateOrders(compareOrders);
+  // 按相对天数偏移聚合数据
+  const currentGroups = aggregateOrdersWithOffset(currentOrders, currentStart);
+  const compareGroups = aggregateOrdersWithOffset(compareOrders, compareStart);
 
-  // 生成所有需要的时间点（基于当前期）
-  const timePoints = Object.keys(currentGroups).sort();
+  // 获取所有当前期的偏移量，按顺序排列
+  const offsets = Object.keys(currentGroups).map(Number).sort((a, b) => a - b);
 
-  const result = timePoints.map(date => {
-    const current = currentGroups[date] || { orders: 0, revenue: 0, quantity: 0 };
-    const compare = compareGroups[date] || { orders: 0, revenue: 0, quantity: 0 };
+  const result = offsets.map(offset => {
+    const current = currentGroups[offset] || { date: '', orders: 0, revenue: 0, quantity: 0 };
+    const compare = compareGroups[offset] || { date: '', orders: 0, revenue: 0, quantity: 0 };
 
     // 计算增长率
     const calculateGrowth = (currentVal: number, compareVal: number) => {
@@ -526,7 +556,7 @@ function groupOrdersByTimeWithCompare(
     };
 
     return {
-      date,
+      date: current.date, // 使用当前期的日期显示
       current: {
         orders: current.orders,
         revenue: current.revenue,
