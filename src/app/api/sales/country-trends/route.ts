@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
+import { createH3YunClient } from '@/lib/h3yun/client';
+import { buildSkuMappingCache } from '@/lib/h3yun/sku-mapping';
+import type { SkuMappingCache } from '@/lib/h3yun/types';
+import { h3yunSchemaConfig } from '@/config/h3yun.config';
+import { env } from '@/env';
 
 interface QueryParams {
   country: string;
@@ -125,8 +130,32 @@ export async function POST(request: NextRequest) {
 
     console.log('[Country Trends] Total orders fetched:', allOrders.length);
 
+    // 加载SKU映射（可选功能，失败不影响查询）
+    let skuMappingCache: SkuMappingCache | null = null;
+    try {
+      const h3yunConfig = {
+        engineCode: env.H3YUN_ENGINE_CODE,
+        engineSecret: env.H3YUN_ENGINE_SECRET,
+        schemaCode: h3yunSchemaConfig.inventorySchemaCode,
+        warehouseSchemaCode: h3yunSchemaConfig.warehouseSchemaCode,
+        skuMappingSchemaCode: h3yunSchemaConfig.skuMappingSchemaCode,
+      };
+
+      if (h3yunConfig.engineCode && h3yunConfig.engineSecret) {
+        console.log('[Country Trends] 尝试加载SKU映射...');
+        const client = createH3YunClient(h3yunConfig);
+        const mappings = await client.fetchSkuMappings(1000);
+        skuMappingCache = buildSkuMappingCache(mappings);
+        console.log(`[Country Trends] ✅ SKU映射已加载: ${skuMappingCache.wooToH3.size} 个WooCommerce SKU`);
+      } else {
+        console.log('[Country Trends] 氚云配置未设置，跳过SKU映射');
+      }
+    } catch (error) {
+      console.warn('[Country Trends] ⚠️ SKU映射加载失败，将使用原始数量:', error);
+    }
+
     // 按时间维度分组聚合
-    const trends = groupOrdersByTime(allOrders, groupBy);
+    const trends = groupOrdersByTime(allOrders, groupBy, skuMappingCache);
 
     return NextResponse.json({
       success: true,
@@ -147,7 +176,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month') {
+function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month', mappingCache: SkuMappingCache | null = null) {
   const groups: Record<string, any> = {};
 
   orders.forEach(order => {
@@ -184,7 +213,21 @@ function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month') {
 
     const orderItems = order.order_items || [];
     orderItems.forEach((item: any) => {
-      groups[key].quantity += parseInt(item.quantity || 0);
+      const sku = item.sku || `product_${item.product_id}`;
+      const originalQuantity = parseInt(item.quantity || 0);
+
+      // Apply SKU mapping if available
+      let actualQuantity = originalQuantity;
+      if (mappingCache) {
+        const mappings = mappingCache.wooToH3.get(sku);
+        if (mappings && mappings.length > 0) {
+          // Sum all quantity multipliers (one-to-many support)
+          const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
+          actualQuantity = originalQuantity * totalMultiplier;
+        }
+      }
+
+      groups[key].quantity += actualQuantity;
     });
   });
 
