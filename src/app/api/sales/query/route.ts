@@ -5,6 +5,7 @@ import { buildSkuMappingCache } from '@/lib/h3yun/sku-mapping';
 import type { SkuMappingCache } from '@/lib/h3yun/types';
 import { h3yunSchemaConfig } from '@/config/h3yun.config';
 import { env } from '@/env';
+import { getVapsoloSiteType } from '@/lib/vapsolo-utils';
 
 interface QueryParams {
   siteIds?: string[];
@@ -273,6 +274,16 @@ export async function POST(request: NextRequest) {
       console.log('[Sales Query] Compare orders fetched:', compareOrders.length);
     }
 
+    // 识别批发站点订单
+    const wholesaleOrders = allCurrentOrders.filter(o => getVapsoloSiteType(o.site_name) === 'wholesale');
+    const wholesaleSiteNames = [...new Set(wholesaleOrders.map(o => o.site_name))];
+    console.log(`[Sales Query] 📦 批发站点识别:`);
+    console.log(`  - 批发订单数: ${wholesaleOrders.length} / ${allCurrentOrders.length}`);
+    if (wholesaleSiteNames.length > 0) {
+      console.log(`  - 批发站点: ${wholesaleSiteNames.join(', ')}`);
+      console.log(`  - 换算规则: 批发站点 1盒 = 10支`);
+    }
+
     // Calculate statistics with SKU mapping support
     const calculateStats = (orders: any[], mappingCache: SkuMappingCache | null = null) => {
       const stats = {
@@ -326,18 +337,25 @@ export async function POST(request: NextRequest) {
           const sku = item.sku || `product_${item.product_id}`;
           const originalQuantity = parseInt(item.quantity || 0);
 
-          // Apply SKU mapping if available
-          let actualQuantity = originalQuantity;
+          // 步骤1: 应用批发站点换算（如果是批发站点，1盒=10支）
+          let quantityAfterWholesale = originalQuantity;
+          const siteType = getVapsoloSiteType(order.site_name);
+          if (siteType === 'wholesale') {
+            quantityAfterWholesale = originalQuantity * 10;
+          }
+
+          // 步骤2: 应用SKU映射（套装产品映射）
+          let actualQuantity = quantityAfterWholesale;
           if (mappingCache) {
             const mappings = mappingCache.wooToH3.get(sku);
             if (mappings && mappings.length > 0) {
               // Sum all quantity multipliers (one-to-many support)
               const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
-              actualQuantity = originalQuantity * totalMultiplier;
+              actualQuantity = quantityAfterWholesale * totalMultiplier;
 
               // Log first few mappings for debugging
               if (mappings.length > 0 && stats.totalQuantity === 0) {
-                console.log(`[Sales Query] 🔄 SKU映射示例: ${sku} × ${originalQuantity} → ${actualQuantity} (倍数: ${totalMultiplier})`);
+                console.log(`[Sales Query] 🔄 SKU映射示例: ${sku} × ${quantityAfterWholesale} → ${actualQuantity} (倍数: ${totalMultiplier})`);
               }
             }
           }
@@ -521,13 +539,20 @@ function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month', map
       const sku = item.sku || `product_${item.product_id}`;
       const originalQuantity = parseInt(item.quantity || 0);
 
-      // Apply SKU mapping if available
-      let actualQuantity = originalQuantity;
+      // 步骤1: 应用批发站点换算
+      let quantityAfterWholesale = originalQuantity;
+      const siteType = getVapsoloSiteType(order.site_name);
+      if (siteType === 'wholesale') {
+        quantityAfterWholesale = originalQuantity * 10;
+      }
+
+      // 步骤2: 应用SKU映射
+      let actualQuantity = quantityAfterWholesale;
       if (mappingCache) {
         const mappings = mappingCache.wooToH3.get(sku);
         if (mappings && mappings.length > 0) {
           const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
-          actualQuantity = originalQuantity * totalMultiplier;
+          actualQuantity = quantityAfterWholesale * totalMultiplier;
         }
       }
 
@@ -596,13 +621,20 @@ function groupOrdersByTimeWithCompare(
           const sku = item.sku || `product_${item.product_id}`;
           const originalQuantity = parseInt(item.quantity || 0);
 
-          // Apply SKU mapping if available
-          let actualQuantity = originalQuantity;
+          // 步骤1: 应用批发站点换算
+          let quantityAfterWholesale = originalQuantity;
+          const siteType = getVapsoloSiteType(order.site_name);
+          if (siteType === 'wholesale') {
+            quantityAfterWholesale = originalQuantity * 10;
+          }
+
+          // 步骤2: 应用SKU映射
+          let actualQuantity = quantityAfterWholesale;
           if (mappingCache) {
             const mappings = mappingCache.wooToH3.get(sku);
             if (mappings && mappings.length > 0) {
               const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
-              actualQuantity = originalQuantity * totalMultiplier;
+              actualQuantity = quantityAfterWholesale * totalMultiplier;
             }
           }
 

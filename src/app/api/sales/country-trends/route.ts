@@ -5,6 +5,7 @@ import { buildSkuMappingCache } from '@/lib/h3yun/sku-mapping';
 import type { SkuMappingCache } from '@/lib/h3yun/types';
 import { h3yunSchemaConfig } from '@/config/h3yun.config';
 import { env } from '@/env';
+import { getVapsoloSiteType } from '@/lib/vapsolo-utils';
 
 interface QueryParams {
   country: string;
@@ -216,14 +217,21 @@ function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month', map
       const sku = item.sku || `product_${item.product_id}`;
       const originalQuantity = parseInt(item.quantity || 0);
 
-      // Apply SKU mapping if available
-      let actualQuantity = originalQuantity;
+      // 步骤1: 应用批发站点换算（如果是批发站点，1盒=10支）
+      let quantityAfterWholesale = originalQuantity;
+      const siteType = getVapsoloSiteType(order.site_name);
+      if (siteType === 'wholesale') {
+        quantityAfterWholesale = originalQuantity * 10;
+      }
+
+      // 步骤2: 应用SKU映射（套装产品映射）
+      let actualQuantity = quantityAfterWholesale;
       if (mappingCache) {
         const mappings = mappingCache.wooToH3.get(sku);
         if (mappings && mappings.length > 0) {
           // Sum all quantity multipliers (one-to-many support)
           const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
-          actualQuantity = originalQuantity * totalMultiplier;
+          actualQuantity = quantityAfterWholesale * totalMultiplier;
         }
       }
 
