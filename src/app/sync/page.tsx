@@ -154,6 +154,26 @@ export default function SyncPage() {
 
   // Product Detection
   const handleProductDetection = async (skus: string[], siteId?: string) => {
+    // 过滤掉排除的SKU
+    const { filterExcludedSkus, getExcludedPrefixes } = await import('@/lib/sku-exclusion');
+    const originalCount = skus.length;
+    const filteredSkus = filterExcludedSkus(skus);
+    const excludedCount = originalCount - filteredSkus.length;
+
+    if (excludedCount > 0) {
+      const excludedPrefixes = getExcludedPrefixes();
+      console.log(`[产品检测] 排除 ${excludedCount} 个SKU（排除前缀: ${excludedPrefixes.join(', ')}）`);
+      toast.info(`已自动排除 ${excludedCount} 个SKU，将检测 ${filteredSkus.length} 个SKU`);
+    }
+
+    if (filteredSkus.length === 0) {
+      toast.error('所有SKU都被排除，无法进行产品检测');
+      return;
+    }
+
+    // 使用过滤后的SKU列表
+    skus = filteredSkus;
+
     // If a siteId is provided, use the site's credentials
     let apiConfig = { ...settings };
 
@@ -410,6 +430,14 @@ export default function SyncPage() {
 
   // Sync SKU
   const handleSyncSku = async (sku: string, shouldBeInStock: boolean, siteId?: string) => {
+    // 检查是否是排除的SKU前缀
+    const { shouldExcludeSku, getExcludedPrefixes } = await import('@/lib/sku-exclusion');
+    if (shouldExcludeSku(sku)) {
+      const excludedPrefixes = getExcludedPrefixes();
+      toast.warning(`SKU ${sku} 已被排除，不参与同步功能（排除前缀: ${excludedPrefixes.join(', ')}）`);
+      return;
+    }
+
     // If a siteId is provided, use the site's credentials
     let apiConfig = { ...settings };
 
@@ -560,7 +588,22 @@ export default function SyncPage() {
       return;
     }
 
-    const skusToSync = Array.from(selectedSkusForSync);
+    // 过滤掉排除的SKU
+    const { filterExcludedSkus, getExcludedPrefixes } = await import('@/lib/sku-exclusion');
+    const allSkus = Array.from(selectedSkusForSync);
+    const skusToSync = filterExcludedSkus(allSkus);
+    const excludedCount = allSkus.length - skusToSync.length;
+
+    if (excludedCount > 0) {
+      const excludedPrefixes = getExcludedPrefixes();
+      toast.info(`已自动排除 ${excludedCount} 个SKU（排除前缀: ${excludedPrefixes.join(', ')}）`);
+    }
+
+    if (skusToSync.length === 0) {
+      toast.error('所有选中的SKU都被排除，无法同步');
+      return;
+    }
+
     const batchSize = 5;
 
     for (let i = 0; i < skusToSync.length; i += batchSize) {

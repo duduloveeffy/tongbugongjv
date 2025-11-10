@@ -4,6 +4,7 @@
  */
 
 import type { H3YunSkuMappingObject } from './types';
+import { shouldExcludeSku, getExcludedPrefixes } from '@/lib/sku-exclusion';
 
 /**
  * SKU映射关系
@@ -49,6 +50,7 @@ export function buildMappingIndex(
 
   let validCount = 0;
   let skippedCount = 0;
+  let excludedCount = 0;
   const SUB_TABLE_FIELD = 'D289302Fb80a39c3ff444bbfb4fb1764d4171eb3';
 
   for (const item of mappingData) {
@@ -78,6 +80,13 @@ export function buildMappingIndex(
         continue;
       }
 
+      // 检查是否是需要排除的SKU前缀
+      if (shouldExcludeSku(h3yunSku)) {
+        excludedCount++;
+        console.log(`[Mapping Service] 排除SKU（匹配排除前缀）: ${h3yunSku} → ${wooSku}`);
+        continue;
+      }
+
       const relation: SkuMappingRelation = {
         h3yunSku,
         woocommerceSku: wooSku,
@@ -98,7 +107,8 @@ export function buildMappingIndex(
     }
   }
 
-  console.log(`[Mapping Service] 索引构建完成: 有效=${validCount}, 跳过=${skippedCount}`);
+  console.log(`[Mapping Service] 索引构建完成: 有效=${validCount}, 跳过=${skippedCount}, 排除=${excludedCount}`);
+  console.log(`[Mapping Service] 排除前缀: [${getExcludedPrefixes().join(', ')}]`);
   console.log(`[Mapping Service] 氚云SKU数: ${h3yunToWoo.size}, WooCommerce SKU数: ${wooToH3yun.size}`);
 
   // 【诊断】输出一对多映射的详细信息
