@@ -23,10 +23,17 @@ export function buildSkuMappingCache(
 
   console.log(`[SKU Mapping] 开始构建SKU映射缓存，共 ${mappingObjects.length} 条记录`);
 
+  // 子表字段名（氚云表单的"替换数量明细"子表）
+  const SUBTABLE_FIELD = 'D289302Fb80a39c3ff444bbfb4fb1764d4171eb3';
+
   // 【诊断】打印前3条完整记录
   console.log('[SKU Mapping] 原始数据样本:');
   mappingObjects.slice(0, 3).forEach((obj, idx) => {
-    console.log(`  记录 ${idx + 1}:`, JSON.stringify(obj, null, 2));
+    console.log(`  记录 ${idx + 1}:`, {
+      F0000004: obj.F0000004,
+      子表记录数: obj[SUBTABLE_FIELD]?.length || 0,
+      子表数据: obj[SUBTABLE_FIELD],
+    });
   });
 
   // 【诊断】统计字段使用情况
@@ -44,44 +51,62 @@ export function buildSkuMappingCache(
   let skippedMappings = 0;
 
   for (const obj of mappingObjects) {
-    const woocommerceSku = obj.F0000001?.trim();
-    const h3yunSkuId = obj.F0000002?.trim();
-    const quantity = obj.F0000003 || 1;
+    // 从主表获取 WooCommerce SKU（字段 F0000004）
+    const woocommerceSku = obj.F0000004?.trim();
 
-    // 验证必填字段
-    if (!woocommerceSku || !h3yunSkuId) {
+    if (!woocommerceSku) {
       skippedMappings++;
       // 【诊断】打印第一条被跳过的记录
       if (skippedMappings === 1) {
-        console.log('[SKU Mapping] 第一条被跳过的记录示例:', {
-          F0000001: obj.F0000001,
-          F0000002: obj.F0000002,
-          F0000003: obj.F0000003,
+        console.log('[SKU Mapping] 第一条被跳过的记录（缺少F0000004）:', {
+          F0000004: obj.F0000004,
           allFields: Object.keys(obj),
         });
       }
       continue;
     }
 
-    const mapping: SkuMapping = {
-      woocommerceSku,
-      h3yunSkuId,
-      quantity,
-    };
+    // 获取子表数组（替换数量明细）
+    const subTableData = obj[SUBTABLE_FIELD];
 
-    // WooCommerce -> H3Yun
-    if (!wooToH3.has(woocommerceSku)) {
-      wooToH3.set(woocommerceSku, []);
+    if (!subTableData || !Array.isArray(subTableData) || subTableData.length === 0) {
+      skippedMappings++;
+      if (skippedMappings <= 3) {
+        console.log(`[SKU Mapping] SKU ${woocommerceSku} 没有子表数据`);
+      }
+      continue;
     }
-    wooToH3.get(woocommerceSku)!.push(mapping);
 
-    // H3Yun -> WooCommerce
-    if (!h3ToWoo.has(h3yunSkuId)) {
-      h3ToWoo.set(h3yunSkuId, []);
+    // 遍历子表中的每一条替换记录（支持一对多映射）
+    for (const subItem of subTableData) {
+      const h3yunSkuId = subItem.F0000002?.trim();     // 子表字段：替换发货产品
+      const quantity = parseInt(subItem.F0000003) || 1; // 子表字段：替换数量
+
+      if (!h3yunSkuId) {
+        console.warn(`[SKU Mapping] SKU ${woocommerceSku} 的子表记录缺少F0000002字段`);
+        continue;
+      }
+
+      const mapping: SkuMapping = {
+        woocommerceSku,
+        h3yunSkuId,
+        quantity,
+      };
+
+      // WooCommerce -> H3Yun
+      if (!wooToH3.has(woocommerceSku)) {
+        wooToH3.set(woocommerceSku, []);
+      }
+      wooToH3.get(woocommerceSku)!.push(mapping);
+
+      // H3Yun -> WooCommerce
+      if (!h3ToWoo.has(h3yunSkuId)) {
+        h3ToWoo.set(h3yunSkuId, []);
+      }
+      h3ToWoo.get(h3yunSkuId)!.push(mapping);
+
+      validMappings++;
     }
-    h3ToWoo.get(h3yunSkuId)!.push(mapping);
-
-    validMappings++;
   }
 
   console.log(`[SKU Mapping] 映射缓存构建完成:`);
