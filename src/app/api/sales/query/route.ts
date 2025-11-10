@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
+import { createH3YunClient } from '@/lib/h3yun/client';
+import { buildSkuMappingCache } from '@/lib/h3yun/sku-mapping';
+import type { SkuMappingCache } from '@/lib/h3yun/types';
+import { h3yunSchemaConfig } from '@/config/h3yun.config';
+import { env } from '@/env';
 
 interface QueryParams {
   siteIds?: string[];
@@ -62,6 +67,31 @@ export async function POST(request: NextRequest) {
         { error: 'Database not configured' },
         { status: 503 }
       );
+    }
+
+    // 尝试获取SKU映射数据（可选功能，失败不影响查询）
+    let skuMappingCache: SkuMappingCache | null = null;
+    try {
+      const h3yunConfig = {
+        engineCode: env.H3YUN_ENGINE_CODE,
+        engineSecret: env.H3YUN_ENGINE_SECRET,
+        schemaCode: h3yunSchemaConfig.inventorySchemaCode,
+        warehouseSchemaCode: h3yunSchemaConfig.warehouseSchemaCode,
+        skuMappingSchemaCode: h3yunSchemaConfig.skuMappingSchemaCode,
+      };
+
+      if (h3yunConfig.engineCode && h3yunConfig.engineSecret) {
+        console.log('[Sales Query] 尝试加载SKU映射...');
+        const client = createH3YunClient(h3yunConfig);
+        const mappings = await client.fetchSkuMappings(1000); // 获取最多1000条映射
+        skuMappingCache = buildSkuMappingCache(mappings);
+        console.log(`[Sales Query] ✅ SKU映射已加载: ${skuMappingCache.wooToH3.size} 个WooCommerce SKU`);
+      } else {
+        console.log('[Sales Query] 氚云配置未设置，跳过SKU映射');
+      }
+    } catch (error) {
+      console.warn('[Sales Query] ⚠️ SKU映射加载失败，将使用原始数量:', error);
+      // 继续执行，不影响主流程
     }
 
     // 首先检查是否有订单数据
@@ -243,8 +273,8 @@ export async function POST(request: NextRequest) {
       console.log('[Sales Query] Compare orders fetched:', compareOrders.length);
     }
 
-    // Calculate statistics
-    const calculateStats = (orders: any[]) => {
+    // Calculate statistics with SKU mapping support
+    const calculateStats = (orders: any[], mappingCache: SkuMappingCache | null = null) => {
       const stats = {
         totalOrders: orders.length,
         totalRevenue: 0,
@@ -294,13 +324,31 @@ export async function POST(request: NextRequest) {
         const orderItems = order.order_items || [];
         orderItems.forEach((item: any) => {
           const sku = item.sku || `product_${item.product_id}`;
-          const quantity = parseInt(item.quantity || 0);
+          const originalQuantity = parseInt(item.quantity || 0);
 
-          stats.totalQuantity += quantity;
-          stats.bySite[order.site_id].quantity += quantity;
-          stats.byCountry[country].quantity += quantity;
+          // Apply SKU mapping if available
+          let actualQuantity = originalQuantity;
+          if (mappingCache) {
+            const mappings = mappingCache.wooToH3.get(sku);
+            if (mappings && mappings.length > 0) {
+              // Sum all quantity multipliers (one-to-many support)
+              const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
+              actualQuantity = originalQuantity * totalMultiplier;
+
+              // Log first few mappings for debugging
+              if (mappings.length > 0 && stats.totalQuantity === 0) {
+                console.log(`[Sales Query] 🔄 SKU映射示例: ${sku} × ${originalQuantity} → ${actualQuantity} (倍数: ${totalMultiplier})`);
+              }
+            }
+          }
+
+          // Use actualQuantity for totals, sites, countries
+          stats.totalQuantity += actualQuantity;
+          stats.bySite[order.site_id].quantity += actualQuantity;
+          stats.byCountry[country].quantity += actualQuantity;
           stats.byCountry[country].skus.add(sku);
 
+          // Use originalQuantity for bySku (preserve bundle product analysis)
           if (!stats.bySku[sku]) {
             stats.bySku[sku] = {
               sku,
@@ -312,7 +360,7 @@ export async function POST(request: NextRequest) {
             };
           }
           stats.bySku[sku].orderCount++;
-          stats.bySku[sku].quantity += quantity;
+          stats.bySku[sku].quantity += originalQuantity; // Keep original for bundle analysis
           stats.bySku[sku].revenue += parseFloat(item.total || 0);
           stats.bySku[sku].sites.add(order.site_id);
         });
@@ -358,8 +406,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const currentStats = calculateStats(currentOrders || []);
-    const compareStats = compareStart ? calculateStats(compareOrders) : null;
+    const currentStats = calculateStats(currentOrders || [], skuMappingCache);
+    const compareStats = compareStart ? calculateStats(compareOrders, skuMappingCache) : null;
 
     // Update site names in stats
     if (currentStats && currentStats.bySite) {
@@ -401,11 +449,12 @@ export async function POST(request: NextRequest) {
           dateStart,
           dateEnd,
           compareStart,
-          compareEnd
+          compareEnd,
+          skuMappingCache
         );
       } else {
         // 没有对比期时，只显示当前期数据
-        timeSeriesData = groupOrdersByTime(currentOrders || [], groupBy);
+        timeSeriesData = groupOrdersByTime(currentOrders || [], groupBy, skuMappingCache);
       }
     }
 
@@ -432,7 +481,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month') {
+function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month', mappingCache: SkuMappingCache | null = null) {
   const groups: Record<string, any> = {};
 
   orders.forEach(order => {
@@ -469,7 +518,20 @@ function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month') {
 
     const orderItems = order.order_items || [];
     orderItems.forEach((item: any) => {
-      groups[key].quantity += parseInt(item.quantity || 0);
+      const sku = item.sku || `product_${item.product_id}`;
+      const originalQuantity = parseInt(item.quantity || 0);
+
+      // Apply SKU mapping if available
+      let actualQuantity = originalQuantity;
+      if (mappingCache) {
+        const mappings = mappingCache.wooToH3.get(sku);
+        if (mappings && mappings.length > 0) {
+          const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
+          actualQuantity = originalQuantity * totalMultiplier;
+        }
+      }
+
+      groups[key].quantity += actualQuantity;
     });
   });
 
@@ -483,7 +545,8 @@ function groupOrdersByTimeWithCompare(
   currentStart: string,
   currentEnd: string,
   compareStart: string,
-  compareEnd: string
+  compareEnd: string,
+  mappingCache: SkuMappingCache | null = null
 ) {
   const getDateKey = (date: Date, groupBy: 'day' | 'week' | 'month'): string => {
     switch (groupBy) {
@@ -530,7 +593,20 @@ function groupOrdersByTimeWithCompare(
       const orderItems = order.order_items || [];
       orderItems.forEach((item: any) => {
         if (groups[dayOffset]) {
-          groups[dayOffset].quantity += parseInt(item.quantity || 0);
+          const sku = item.sku || `product_${item.product_id}`;
+          const originalQuantity = parseInt(item.quantity || 0);
+
+          // Apply SKU mapping if available
+          let actualQuantity = originalQuantity;
+          if (mappingCache) {
+            const mappings = mappingCache.wooToH3.get(sku);
+            if (mappings && mappings.length > 0) {
+              const totalMultiplier = mappings.reduce((sum, m) => sum + m.quantity, 0);
+              actualQuantity = originalQuantity * totalMultiplier;
+            }
+          }
+
+          groups[dayOffset].quantity += actualQuantity;
         }
       });
     });
