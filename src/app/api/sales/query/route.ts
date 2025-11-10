@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
         .from('orders')
         .select(`
           *,
-          sites!inner (
+          wc_sites!inner (
             id,
             name
           ),
@@ -284,10 +284,10 @@ export async function POST(request: NextRequest) {
 
     // 识别批发站点订单（使用关联查询的 sites.name）
     const wholesaleOrders = allCurrentOrders.filter(o => {
-      const siteName = o.sites?.name;
+      const siteName = o.wc_sites?.name;
       return siteName && getVapsoloSiteType(siteName) === 'wholesale';
     });
-    const wholesaleSiteNames = [...new Set(wholesaleOrders.map(o => o.sites?.name).filter(Boolean))];
+    const wholesaleSiteNames = [...new Set(wholesaleOrders.map(o => o.wc_sites?.name).filter(Boolean))];
     console.log(`[Sales Query] 📦 批发站点识别:`);
     console.log(`  - 批发订单数: ${wholesaleOrders.length} / ${allCurrentOrders.length}`);
     if (wholesaleSiteNames.length > 0) {
@@ -350,7 +350,7 @@ export async function POST(request: NextRequest) {
 
           // 步骤1: 应用批发站点换算（如果是批发站点，1盒=10支）
           let quantityAfterWholesale = originalQuantity;
-          const siteName = order.sites?.name || '';
+          const siteName = order.wc_sites?.name || '';
           const siteType = getVapsoloSiteType(siteName);
           if (siteType === 'wholesale') {
             quantityAfterWholesale = originalQuantity * 10;
@@ -553,7 +553,7 @@ function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month', map
 
       // 步骤1: 应用批发站点换算
       let quantityAfterWholesale = originalQuantity;
-      const siteName = order.sites?.name || '';
+      const siteName = order.wc_sites?.name || '';
       const siteType = getVapsoloSiteType(siteName);
       if (siteType === 'wholesale') {
         quantityAfterWholesale = originalQuantity * 10;
@@ -636,7 +636,7 @@ function groupOrdersByTimeWithCompare(
 
           // 步骤1: 应用批发站点换算
           let quantityAfterWholesale = originalQuantity;
-          const siteName = order.sites?.name || '';
+          const siteName = order.wc_sites?.name || '';
           const siteType = getVapsoloSiteType(siteName);
           if (siteType === 'wholesale') {
             quantityAfterWholesale = originalQuantity * 10;
