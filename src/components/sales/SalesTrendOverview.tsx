@@ -213,7 +213,7 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
             <div className="text-muted-foreground mb-1">订单数</div>
             <div className="font-bold text-lg">{formatNumber(stats.total.orders)}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              日均 {formatNumber(stats.avg.orders)}
+              平均 {formatNumber(stats.avg.orders)}
             </div>
           </div>
 
@@ -222,7 +222,7 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
             <div className="text-muted-foreground mb-1">销售量</div>
             <div className="font-bold text-lg">{formatNumber(stats.total.quantity)}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              日均 {formatNumber(stats.avg.quantity)}
+              平均 {formatNumber(stats.avg.quantity)}
             </div>
           </div>
 
@@ -231,7 +231,7 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
             <div className="text-muted-foreground mb-1">销售额</div>
             <div className="font-bold text-lg">{formatCurrency(stats.total.revenue)}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              日均 {formatCurrency(stats.avg.revenue)}
+              平均 {formatCurrency(stats.avg.revenue)}
             </div>
           </div>
         </div>
