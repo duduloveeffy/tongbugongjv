@@ -81,6 +81,10 @@ export async function POST(request: NextRequest) {
         .from('orders')
         .select(`
           *,
+          sites!inner (
+            id,
+            name
+          ),
           order_items (
             id,
             item_id,
@@ -219,7 +223,8 @@ function groupOrdersByTime(orders: any[], groupBy: 'day' | 'week' | 'month', map
 
       // 步骤1: 应用批发站点换算（如果是批发站点，1盒=10支）
       let quantityAfterWholesale = originalQuantity;
-      const siteType = getVapsoloSiteType(order.site_name);
+      const siteName = order.sites?.name || '';
+      const siteType = getVapsoloSiteType(siteName);
       if (siteType === 'wholesale') {
         quantityAfterWholesale = originalQuantity * 10;
       }
