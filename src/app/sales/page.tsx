@@ -124,6 +124,10 @@ export default function SalesPage() {
 
     setIsLoading(true);
 
+    // 强制清空旧数据，确保 React 检测到状态变化
+    setSalesData(null);
+    setExpandedSpu(null); // 关闭展开的 SPU
+
     try {
       const response = await fetch('/api/sales/query', {
         method: 'POST',
@@ -149,6 +153,7 @@ export default function SalesPage() {
       const result = await response.json();
 
       if (result.success) {
+        // 确保状态更新触发重新渲染
         setSalesData(result.data);
         if (result.data) {
           const orderCount = result.data.current?.totalOrders || 0;
