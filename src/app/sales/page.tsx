@@ -6,6 +6,7 @@ import { SalesStatistics } from '@/components/sales/SalesStatistics';
 import { SiteStatistics } from '@/components/sales/SiteStatistics';
 import { CountryStatistics } from '@/components/sales/CountryStatistics';
 import { SpuTrendDetail } from '@/components/sales/SpuTrendDetail';
+import { SalesTrendOverview } from '@/components/sales/SalesTrendOverview';
 import { useMultiSiteStore } from '@/store/multisite';
 import { useCallback, useState, useEffect, useMemo, Fragment } from 'react';
 import { toast } from 'sonner';
@@ -576,33 +577,57 @@ export default function SalesPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>日期</TableHead>
-                        <TableHead className="text-right">订单数</TableHead>
-                        <TableHead className="text-right">销售量</TableHead>
-                        <TableHead className="text-right">销售额</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {salesData.timeSeries.map((item: any) => {
-                        // 兼容两种数据格式：有对比期时使用 current，无对比期时直接使用
-                        const orders = item.current?.orders ?? item.orders ?? 0;
-                        const quantity = item.current?.quantity ?? item.quantity ?? 0;
-                        const revenue = item.current?.revenue ?? item.revenue ?? 0;
+                  <Tabs defaultValue="chart" className="w-full">
+                    <TabsList className="mb-4">
+                      <TabsTrigger value="chart" className="flex items-center gap-2">
+                        <BarChart3 className="h-4 w-4" />
+                        图表视图
+                      </TabsTrigger>
+                      <TabsTrigger value="table" className="flex items-center gap-2">
+                        <Package className="h-4 w-4" />
+                        表格视图
+                      </TabsTrigger>
+                    </TabsList>
 
-                        return (
-                          <TableRow key={item.date}>
-                            <TableCell className="font-medium">{item.date}</TableCell>
-                            <TableCell className="text-right">{formatNumber(orders)}</TableCell>
-                            <TableCell className="text-right">{formatNumber(quantity)}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(revenue)}</TableCell>
+                    {/* Chart View */}
+                    <TabsContent value="chart">
+                      <SalesTrendOverview
+                        timeSeries={salesData.timeSeries}
+                        hasCompare={!!salesData.compare}
+                      />
+                    </TabsContent>
+
+                    {/* Table View */}
+                    <TabsContent value="table">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>日期</TableHead>
+                            <TableHead className="text-right">订单数</TableHead>
+                            <TableHead className="text-right">销售量</TableHead>
+                            <TableHead className="text-right">销售额</TableHead>
                           </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {salesData.timeSeries.map((item: any) => {
+                            // 兼容两种数据格式：有对比期时使用 current，无对比期时直接使用
+                            const orders = item.current?.orders ?? item.orders ?? 0;
+                            const quantity = item.current?.quantity ?? item.quantity ?? 0;
+                            const revenue = item.current?.revenue ?? item.revenue ?? 0;
+
+                            return (
+                              <TableRow key={item.date}>
+                                <TableCell className="font-medium">{item.date}</TableCell>
+                                <TableCell className="text-right">{formatNumber(orders)}</TableCell>
+                                <TableCell className="text-right">{formatNumber(quantity)}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(revenue)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TabsContent>
+                  </Tabs>
                 </CardContent>
               </Card>
             )}
