@@ -4,7 +4,6 @@ import { useState, useMemo } from 'react';
 import {
   ComposedChart,
   Line,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -12,8 +11,8 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { Button } from '@/components/ui/button';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 interface TimeSeriesItem {
   date: string;
@@ -44,10 +43,19 @@ interface SalesTrendOverviewProps {
   hasCompare?: boolean;
 }
 
-type MetricType = 'orders' | 'quantity' | 'revenue';
+interface VisibleMetrics {
+  orders: boolean;
+  quantity: boolean;
+  revenue: boolean;
+}
 
 export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTrendOverviewProps) {
-  const [metricType, setMetricType] = useState<MetricType>('quantity');
+  // 控制三个指标的显示/隐藏，默认全部显示
+  const [visibleMetrics, setVisibleMetrics] = useState<VisibleMetrics>({
+    orders: true,
+    quantity: true,
+    revenue: true,
+  });
 
   // Transform data for chart
   const chartData = useMemo(() => {
@@ -96,47 +104,20 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
     return { total, avg };
   }, [chartData]);
 
-  // Get metric configuration
-  const getMetricConfig = (type: MetricType) => {
-    switch (type) {
-      case 'orders':
-        return {
-          label: '订单数',
-          currentKey: 'currentOrders',
-          compareKey: 'compareOrders',
-          color: '#3b82f6', // blue
-          compareColor: '#f97316', // orange
-          formatter: (value: number) => value.toLocaleString('zh-CN'),
-        };
-      case 'quantity':
-        return {
-          label: '销售量',
-          currentKey: 'currentQuantity',
-          compareKey: 'compareQuantity',
-          color: '#10b981', // green
-          compareColor: '#f97316', // orange
-          formatter: (value: number) => value.toLocaleString('zh-CN'),
-        };
-      case 'revenue':
-        return {
-          label: '销售额',
-          currentKey: 'currentRevenue',
-          compareKey: 'compareRevenue',
-          color: '#8b5cf6', // purple
-          compareColor: '#f97316', // orange
-          formatter: (value: number) => {
-            return new Intl.NumberFormat('de-DE', {
-              style: 'currency',
-              currency: 'EUR',
-              minimumFractionDigits: 0,
-              maximumFractionDigits: 0,
-            }).format(value);
-          },
-        };
-    }
+  // Currency formatter
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('de-DE', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
   };
 
-  const config = getMetricConfig(metricType);
+  // Number formatter
+  const formatNumber = (value: number) => {
+    return value.toLocaleString('zh-CN');
+  };
 
   // Custom tooltip
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -145,64 +126,112 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
     return (
       <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
         <p className="font-medium mb-2">{label}</p>
-        {payload.map((entry: any, index: number) => (
-          <div key={index} className="flex items-center gap-2 text-sm">
-            <div
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-gray-600">{entry.name}:</span>
-            <span className="font-medium">{config.formatter(entry.value)}</span>
-          </div>
-        ))}
+        {payload.map((entry: any, index: number) => {
+          // Determine formatter based on dataKey
+          const isRevenue = entry.dataKey.includes('Revenue');
+          const formatter = isRevenue ? formatCurrency : formatNumber;
+
+          return (
+            <div key={index} className="flex items-center gap-2 text-sm">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="text-gray-600">{entry.name}:</span>
+              <span className="font-medium">{formatter(entry.value)}</span>
+            </div>
+          );
+        })}
       </div>
     );
   };
 
+  // Handle checkbox change
+  const handleMetricToggle = (metric: keyof VisibleMetrics, checked: boolean) => {
+    setVisibleMetrics(prev => ({ ...prev, [metric]: checked }));
+  };
+
   return (
     <div className="space-y-4">
-      {/* Metric Selector */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
-          <Button
-            variant={metricType === 'orders' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setMetricType('orders')}
-          >
-            订单数
-          </Button>
-          <Button
-            variant={metricType === 'quantity' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setMetricType('quantity')}
-          >
-            销售量
-          </Button>
-          <Button
-            variant={metricType === 'revenue' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setMetricType('revenue')}
-          >
-            销售额
-          </Button>
-        </div>
+      {/* Controls and Stats */}
+      <div className="flex items-start justify-between gap-4">
+        {/* Metric Visibility Controls */}
+        <div className="flex flex-col gap-3">
+          <Label className="text-sm font-medium">显示指标：</Label>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="metric-orders"
+                checked={visibleMetrics.orders}
+                onCheckedChange={(checked) => handleMetricToggle('orders', !!checked)}
+              />
+              <Label
+                htmlFor="metric-orders"
+                className="text-sm font-normal cursor-pointer flex items-center gap-2"
+              >
+                <div className="w-3 h-3 rounded-full bg-blue-500" />
+                订单数
+              </Label>
+            </div>
 
-        {/* Summary Stats */}
-        <div className="flex gap-4 text-sm">
-          <div className="text-right">
-            <div className="text-muted-foreground">总计</div>
-            <div className="font-medium">
-              {metricType === 'orders' && stats.total.orders.toLocaleString('zh-CN')}
-              {metricType === 'quantity' && stats.total.quantity.toLocaleString('zh-CN')}
-              {metricType === 'revenue' && config.formatter(stats.total.revenue)}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="metric-quantity"
+                checked={visibleMetrics.quantity}
+                onCheckedChange={(checked) => handleMetricToggle('quantity', !!checked)}
+              />
+              <Label
+                htmlFor="metric-quantity"
+                className="text-sm font-normal cursor-pointer flex items-center gap-2"
+              >
+                <div className="w-3 h-3 rounded-full bg-green-500" />
+                销售量
+              </Label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="metric-revenue"
+                checked={visibleMetrics.revenue}
+                onCheckedChange={(checked) => handleMetricToggle('revenue', !!checked)}
+              />
+              <Label
+                htmlFor="metric-revenue"
+                className="text-sm font-normal cursor-pointer flex items-center gap-2"
+              >
+                <div className="w-3 h-3 rounded-full bg-purple-500" />
+                销售额
+              </Label>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-muted-foreground">日均</div>
-            <div className="font-medium">
-              {metricType === 'orders' && stats.avg.orders.toLocaleString('zh-CN')}
-              {metricType === 'quantity' && stats.avg.quantity.toLocaleString('zh-CN')}
-              {metricType === 'revenue' && config.formatter(stats.avg.revenue)}
+        </div>
+
+        {/* Summary Stats - Grid Layout */}
+        <div className="grid grid-cols-3 gap-6 text-sm">
+          {/* Orders */}
+          <div className="text-center">
+            <div className="text-muted-foreground mb-1">订单数</div>
+            <div className="font-bold text-lg">{formatNumber(stats.total.orders)}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              日均 {formatNumber(stats.avg.orders)}
+            </div>
+          </div>
+
+          {/* Quantity */}
+          <div className="text-center">
+            <div className="text-muted-foreground mb-1">销售量</div>
+            <div className="font-bold text-lg">{formatNumber(stats.total.quantity)}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              日均 {formatNumber(stats.avg.quantity)}
+            </div>
+          </div>
+
+          {/* Revenue */}
+          <div className="text-center">
+            <div className="text-muted-foreground mb-1">销售额</div>
+            <div className="font-bold text-lg">{formatCurrency(stats.total.revenue)}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              日均 {formatCurrency(stats.avg.revenue)}
             </div>
           </div>
         </div>
@@ -213,15 +242,8 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
-            margin={{ top: 10, right: 10, left: 10, bottom: 60 }}
+            margin={{ top: 10, right: 60, left: 10, bottom: 60 }}
           >
-            <defs>
-              <linearGradient id={`gradient-${metricType}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={config.color} stopOpacity={0.3} />
-                <stop offset="95%" stopColor={config.color} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
 
             <XAxis
@@ -233,10 +255,33 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
               stroke="#6b7280"
             />
 
+            {/* Left Y-Axis: Orders & Quantity */}
             <YAxis
+              yAxisId="left"
               tick={{ fontSize: 12 }}
               stroke="#6b7280"
-              tickFormatter={config.formatter}
+              tickFormatter={formatNumber}
+              label={{
+                value: '订单数 / 销售量',
+                angle: -90,
+                position: 'insideLeft',
+                style: { fontSize: 12 },
+              }}
+            />
+
+            {/* Right Y-Axis: Revenue */}
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tick={{ fontSize: 12 }}
+              stroke="#6b7280"
+              tickFormatter={formatCurrency}
+              label={{
+                value: '销售额',
+                angle: 90,
+                position: 'insideRight',
+                style: { fontSize: 12 },
+              }}
             />
 
             <Tooltip content={<CustomTooltip />} />
@@ -248,113 +293,101 @@ export function SalesTrendOverview({ timeSeries, hasCompare = false }: SalesTren
               wrapperStyle={{ paddingBottom: '10px' }}
             />
 
-            {/* Current Period Area + Line */}
-            <Area
-              type="monotone"
-              dataKey={config.currentKey}
-              fill={`url(#gradient-${metricType})`}
-              stroke="none"
-              name={`当前期${config.label}`}
-            />
-            <Line
-              type="monotone"
-              dataKey={config.currentKey}
-              stroke={config.color}
-              strokeWidth={2}
-              dot={{ r: 4, fill: config.color }}
-              activeDot={{ r: 6 }}
-              name={`当前期${config.label}`}
-            />
+            {/* ========== Current Period Lines ========== */}
 
-            {/* Compare Period Line (if available) */}
-            {hasCompare && (
+            {/* Orders - Blue */}
+            {visibleMetrics.orders && (
               <Line
+                yAxisId="left"
                 type="monotone"
-                dataKey={config.compareKey}
-                stroke={config.compareColor}
+                dataKey="currentOrders"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#3b82f6' }}
+                activeDot={{ r: 6 }}
+                name="当前期订单数"
+              />
+            )}
+
+            {/* Quantity - Green */}
+            {visibleMetrics.quantity && (
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="currentQuantity"
+                stroke="#10b981"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#10b981' }}
+                activeDot={{ r: 6 }}
+                name="当前期销售量"
+              />
+            )}
+
+            {/* Revenue - Purple (Right Axis) */}
+            {visibleMetrics.revenue && (
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="currentRevenue"
+                stroke="#8b5cf6"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#8b5cf6' }}
+                activeDot={{ r: 6 }}
+                name="当前期销售额"
+              />
+            )}
+
+            {/* ========== Compare Period Lines (Dashed) ========== */}
+
+            {hasCompare && visibleMetrics.orders && (
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="compareOrders"
+                stroke="#f97316"
                 strokeWidth={2}
                 strokeDasharray="5 5"
-                dot={{ r: 3, fill: config.compareColor }}
+                dot={{ r: 3, fill: '#f97316' }}
                 activeDot={{ r: 5 }}
-                name={`对比期${config.label}`}
+                name="对比期订单数"
+              />
+            )}
+
+            {hasCompare && visibleMetrics.quantity && (
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="compareQuantity"
+                stroke="#f97316"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={{ r: 3, fill: '#f97316' }}
+                activeDot={{ r: 5 }}
+                name="对比期销售量"
+              />
+            )}
+
+            {hasCompare && visibleMetrics.revenue && (
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="compareRevenue"
+                stroke="#f97316"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={{ r: 3, fill: '#f97316' }}
+                activeDot={{ r: 5 }}
+                name="对比期销售额"
               />
             )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Growth Indicators (if compare data available) */}
-      {hasCompare && (
-        <div className="flex items-center gap-4 text-sm pt-2 border-t">
-          <span className="text-muted-foreground">整体趋势:</span>
-          {metricType === 'orders' && stats.total.orders > 0 && (
-            <div className="flex items-center gap-1">
-              {chartData[chartData.length - 1]?.growthOrders !== null && (
-                <>
-                  {(chartData[chartData.length - 1]?.growthOrders ?? 0) >= 0 ? (
-                    <TrendingUp className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4 text-red-600" />
-                  )}
-                  <span
-                    className={
-                      (chartData[chartData.length - 1]?.growthOrders ?? 0) >= 0
-                        ? 'text-green-600 font-medium'
-                        : 'text-red-600 font-medium'
-                    }
-                  >
-                    {Math.abs(chartData[chartData.length - 1]?.growthOrders ?? 0).toFixed(1)}%
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-          {metricType === 'quantity' && stats.total.quantity > 0 && (
-            <div className="flex items-center gap-1">
-              {chartData[chartData.length - 1]?.growthQuantity !== null && (
-                <>
-                  {(chartData[chartData.length - 1]?.growthQuantity ?? 0) >= 0 ? (
-                    <TrendingUp className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4 text-red-600" />
-                  )}
-                  <span
-                    className={
-                      (chartData[chartData.length - 1]?.growthQuantity ?? 0) >= 0
-                        ? 'text-green-600 font-medium'
-                        : 'text-red-600 font-medium'
-                    }
-                  >
-                    {Math.abs(chartData[chartData.length - 1]?.growthQuantity ?? 0).toFixed(1)}%
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-          {metricType === 'revenue' && stats.total.revenue > 0 && (
-            <div className="flex items-center gap-1">
-              {chartData[chartData.length - 1]?.growthRevenue !== null && (
-                <>
-                  {(chartData[chartData.length - 1]?.growthRevenue ?? 0) >= 0 ? (
-                    <TrendingUp className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4 text-red-600" />
-                  )}
-                  <span
-                    className={
-                      (chartData[chartData.length - 1]?.growthRevenue ?? 0) >= 0
-                        ? 'text-green-600 font-medium'
-                        : 'text-red-600 font-medium'
-                    }
-                  >
-                    {Math.abs(chartData[chartData.length - 1]?.growthRevenue ?? 0).toFixed(1)}%
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Note about dual Y-axis */}
+      <div className="text-xs text-muted-foreground text-center pt-2 border-t">
+        💡 提示：图表使用双Y轴 —— 左侧显示订单数和销售量，右侧显示销售额（单位：欧元）
+      </div>
     </div>
   );
 }
