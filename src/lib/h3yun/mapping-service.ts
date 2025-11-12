@@ -63,6 +63,13 @@ export function buildMappingIndex(
       continue;
     }
 
+    // 检查 WooCommerce SKU 是否是需要排除的前缀（AK-LH 等）
+    if (shouldExcludeSku(wooSku)) {
+      excludedCount++;
+      console.log(`[Mapping Service] 排除映射（WooCommerce SKU 匹配排除前缀）: ${wooSku}`);
+      continue;
+    }
+
     // 氚云SKU从子表中获取
     const subTableData = item[SUB_TABLE_FIELD];
     if (!subTableData || !Array.isArray(subTableData) || subTableData.length === 0) {
