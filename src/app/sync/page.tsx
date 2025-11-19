@@ -198,7 +198,7 @@ export default function SyncPage() {
     }
 
     setIsProductLoading(true);
-    setProductDetectionProgress('开始检测产品上架状态...');
+    setProductDetectionProgress('开始检测产品上架状态（优先使用缓存）...');
 
     // 【新增】1. 加载SKU映射表
     let mappingIndex: any = null;
@@ -282,7 +282,8 @@ export default function SyncPage() {
                 skus: sku
               });
 
-              const response = await fetch(`/api/wc-products?${params.toString()}`);
+              // Use cached API first, fallback to direct API if needed
+              const response = await fetch(`/api/wc-products-cached?${params.toString()}`);
 
               if (response.ok) {
                 const products = await response.json();

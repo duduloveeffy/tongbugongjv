@@ -229,6 +229,17 @@ export async function POST(request: NextRequest) {
         adjustedCompareEnd,
       });
 
+      console.log('[Sales Query] 📊 对比期查询参数:', {
+        originalCompareStart: compareStart,
+        originalCompareEnd: compareEnd,
+        adjustedCompareStart,
+        adjustedCompareEnd,
+        statuses,
+        siteIds,
+        hasSiteFilter: siteIds && siteIds.length > 0,
+        siteCount: siteIds ? siteIds.length : 0,
+      });
+
       let offset = 0;
       let hasMore = true;
 
@@ -237,7 +248,7 @@ export async function POST(request: NextRequest) {
           .from('orders')
           .select(`
             *,
-            sites!inner (
+            wc_sites!inner (
               id,
               name
             ),
@@ -265,8 +276,21 @@ export async function POST(request: NextRequest) {
 
         const { data: pageData, error: pageError } = await compareQuery;
 
+        console.log(`[Sales Query] 对比期第 ${Math.floor(offset / pageSize) + 1} 页查询完成:`, {
+          pageSize,
+          offset,
+          fetched: pageData?.length || 0,
+          hasError: !!pageError,
+        });
+
         if (pageError) {
-          console.error('Failed to fetch compare page:', pageError);
+          console.error('[Sales Query] ❌ 对比期查询错误:', pageError);
+          console.error('[Sales Query] 错误详情:', {
+            code: pageError.code,
+            message: pageError.message,
+            details: pageError.details,
+            hint: pageError.hint,
+          });
           break;
         }
 
@@ -279,7 +303,19 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      console.log('[Sales Query] Compare orders fetched:', compareOrders.length);
+      console.log('[Sales Query] ✅ 对比期查询完成:', {
+        totalOrders: compareOrders.length,
+        isEmpty: compareOrders.length === 0,
+      });
+
+      if (compareOrders.length === 0) {
+        console.warn('[Sales Query] ⚠️ 对比期数据为空，可能原因:');
+        console.warn('  1. 该时间段确实没有订单');
+        console.warn('  2. wc_sites!inner 关联导致订单被过滤（订单的 site_id 在 wc_sites 表中不存在）');
+        console.warn('  3. 站点筛选导致该时间段的订单被排除');
+        console.warn('  4. 订单状态筛选导致订单被排除');
+        console.warn(`  提示: 当前期有 ${allCurrentOrders.length} 订单，但对比期为 0`);
+      }
     }
 
     // 识别批发站点订单（使用关联查询的 sites.name）

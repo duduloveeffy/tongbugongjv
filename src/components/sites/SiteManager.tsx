@@ -30,6 +30,7 @@ import { format } from 'date-fns';
 import { SyncVerification } from './SyncVerification';
 import { SyncProgress } from './SyncProgress';
 import { TaskQueueMonitor } from '@/components/sync/TaskQueueMonitor';
+import { ProductCacheStatus } from './ProductCacheStatus';
 
 export function SiteManager() {
   const {
@@ -469,7 +470,7 @@ export function SiteManager() {
                         onCheckedChange={() => handleToggleEnabled(site)}
                       />
                     </div>
-                    <div>
+                    <div className="flex-1">
                       <div className="font-medium">{site.name}</div>
                       <div className="text-sm text-muted-foreground">{site.url}</div>
                       {site.last_sync_at && (
@@ -478,6 +479,15 @@ export function SiteManager() {
                           最后同步: {format(new Date(site.last_sync_at), 'yyyy-MM-dd HH:mm')}
                         </div>
                       )}
+                    </div>
+                    {/* Product Cache Status */}
+                    <div className="border-l pl-4 ml-4">
+                      <ProductCacheStatus
+                        siteId={site.id}
+                        siteName={site.name}
+                        isEnabled={site.enabled}
+                        compact={true}
+                      />
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
