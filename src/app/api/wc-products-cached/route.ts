@@ -1,11 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { getSupabaseClient } from '@/lib/supabase';
 
 export async function GET(request: NextRequest) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Supabase not configured' },
+      { status: 503 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const siteUrl = searchParams.get('siteUrl');
   const consumerKey = searchParams.get('consumerKey');
@@ -161,6 +165,14 @@ export async function GET(request: NextRequest) {
 
 // POST endpoint to bulk check products from cache
 export async function POST(request: NextRequest) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Supabase not configured' },
+      { status: 503 }
+    );
+  }
+
   try {
     const { siteUrl, consumerKey, skus } = await request.json();
 
