@@ -267,49 +267,70 @@ export default function SyncPage() {
       let foundCount = 0;
       const productDataMap = new Map<string, any>();
 
-      // 【修改】使用扩展后的SKU列表进行检测
+      // 【优化】使用批量缓存API进行检测
       for (let i = 0; i < detectionSkus.length; i += batchSize) {
         const batch = detectionSkus.slice(i, i + batchSize);
-        setProductDetectionProgress(`检测进度: ${i + 1}-${Math.min(i + batchSize, detectionSkus.length)}/${detectionSkus.length} (批次大小: ${batchSize}, 延迟: ${batchDelay}ms)`);
+        setProductDetectionProgress(`检测进度: ${i + 1}-${Math.min(i + batchSize, detectionSkus.length)}/${detectionSkus.length} (批次大小: ${batchSize})`);
 
-        const batchPromises = batch.map(async (sku) => {
-          for (let retry = 0; retry < retryCount; retry++) {
-            try {
-              const params = new URLSearchParams({
+        // 使用新的批量缓存API
+        let batchResults = [];
+        for (let retry = 0; retry < retryCount; retry++) {
+          try {
+            const response = await fetch('/api/products/detect-cached', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                siteId: siteId || selectedSiteForSync,
+                skus: batch,
                 siteUrl: apiConfig.siteUrl,
                 consumerKey: apiConfig.consumerKey,
                 consumerSecret: apiConfig.consumerSecret,
-                skus: sku
-              });
+              }),
+            });
 
-              // Use cached API first, fallback to direct API if needed
-              const response = await fetch(`/api/wc-products-cached?${params.toString()}`);
+            if (response.ok) {
+              const data = await response.json();
+              console.log(`[产品检测] 批次完成 - 缓存命中: ${data.stats.cacheHits}, API调用: ${data.stats.apiCalls}`);
 
-              if (response.ok) {
-                const products = await response.json();
-                return { sku, products, success: true };
-              } else if (response.status === 429) {
-                // Rate limit - increase delay
-                batchDelay = Math.min(maxDelay, batchDelay * 1.5);
-                batchSize = Math.max(minBatchSize, batchSize - 1);
-                await new Promise(resolve => setTimeout(resolve, batchDelay * (retry + 1)));
-              } else {
-                if (retry === retryCount - 1) {
-                  return { sku, products: [], success: false, error: `HTTP ${response.status}` };
-                }
-                await new Promise(resolve => setTimeout(resolve, batchDelay * (retry + 1)));
-              }
-            } catch (error) {
+              // 转换结果格式以兼容现有逻辑
+              batchResults = data.products.map((product: any) => ({
+                sku: product.sku,
+                products: product.status === 'not_found' ? [] : [{
+                  status: product.status,
+                  stock_status: product.stockStatus,
+                  stock_quantity: product.stockQuantity,
+                  permalink: product.productUrl,
+                }],
+                success: product.status !== 'error',
+              }));
+              break; // 成功，跳出重试循环
+            } else if (response.status === 429) {
+              // Rate limit - increase delay
+              batchDelay = Math.min(maxDelay, batchDelay * 1.5);
+              batchSize = Math.max(minBatchSize, Math.floor(batchSize * 0.8));
+              await new Promise(resolve => setTimeout(resolve, batchDelay * (retry + 1)));
+            } else {
               if (retry === retryCount - 1) {
-                return { sku, products: [], success: false, error: error instanceof Error ? error.message : '网络错误' };
+                throw new Error(`API返回错误: ${response.status}`);
               }
               await new Promise(resolve => setTimeout(resolve, batchDelay * (retry + 1)));
             }
+          } catch (error) {
+            if (retry === retryCount - 1) {
+              console.error(`[产品检测] 批次失败:`, error);
+              // 失败时，为整个批次返回错误结果
+              batchResults = batch.map(sku => ({
+                sku,
+                products: [],
+                success: false,
+                error: error instanceof Error ? error.message : '网络错误'
+              }));
+            } else {
+              await new Promise(resolve => setTimeout(resolve, batchDelay * (retry + 1)));
+            }
           }
-          return { sku, products: [], success: false, error: '重试次数耗尽' };
-        });
+        }
 
-        const batchResults = await Promise.all(batchPromises);
         let errorCount = 0;
 
         // 【修改】Process results - 将结果关联到原始氚云SKU（支持一对多映射）

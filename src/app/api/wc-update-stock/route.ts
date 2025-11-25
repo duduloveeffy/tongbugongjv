@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { getSupabaseClient } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
   try {
@@ -217,7 +218,52 @@ export async function POST(request: NextRequest) {
       stockStatus: updatedProduct.stock_status,
       stockQuantity: updatedProduct.stock_quantity
     });
-    
+
+    // 更新本地缓存（同时更新 products 和 product_variations 表）
+    if (siteId) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const updateData = {
+            stock_status: updatedProduct.stock_status,
+            stock_quantity: updatedProduct.stock_quantity,
+            manage_stock: updatedProduct.manage_stock,
+            synced_at: new Date().toISOString(),
+          };
+
+          // 并行更新两个表
+          const [productsResult, variationsResult] = await Promise.all([
+            // 更新 products 表
+            supabase
+              .from('products')
+              .update(updateData)
+              .eq('site_id', siteId)
+              .eq('sku', updatedProduct.sku),
+            // 更新 product_variations 表
+            supabase
+              .from('product_variations')
+              .update(updateData)
+              .eq('sku', updatedProduct.sku)
+          ]);
+
+          const productsUpdated = !productsResult.error;
+          const variationsUpdated = !variationsResult.error;
+
+          if (productsUpdated || variationsUpdated) {
+            console.log(`[WC-UPDATE-STOCK] Local cache updated (products: ${productsUpdated}, variations: ${variationsUpdated})`);
+          } else {
+            console.warn('[WC-UPDATE-STOCK] Failed to update local cache:', {
+              productsError: productsResult.error?.message,
+              variationsError: variationsResult.error?.message
+            });
+          }
+        }
+      } catch (cacheError) {
+        // 缓存更新失败不影响主流程
+        console.error('[WC-UPDATE-STOCK] Cache update error:', cacheError);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       product: {
