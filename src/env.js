@@ -12,8 +12,9 @@ export const env = createEnv({
 		UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 		// 氚云 ERP 配置（敏感信息）
 		// 注意：SchemaCode 配置已移至 src/config/h3yun.config.ts
-		H3YUN_ENGINE_CODE: z.string(),
-		H3YUN_ENGINE_SECRET: z.string(),
+		// 改为可选，演示环境不需要
+		H3YUN_ENGINE_CODE: z.string().optional(),
+		H3YUN_ENGINE_SECRET: z.string().optional(),
 	},
 
 	/**
@@ -43,8 +44,9 @@ export const env = createEnv({
 		UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
 		UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
 		// 氚云 ERP 配置（敏感信息）
-		H3YUN_ENGINE_CODE: process.env.H3YUN_ENGINE_CODE,
-		H3YUN_ENGINE_SECRET: process.env.H3YUN_ENGINE_SECRET,
+		// 演示环境提供默认值
+		H3YUN_ENGINE_CODE: process.env.H3YUN_ENGINE_CODE || 'DUMMY',
+		H3YUN_ENGINE_SECRET: process.env.H3YUN_ENGINE_SECRET || 'DUMMY',
 	},
 	/**
 	 * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

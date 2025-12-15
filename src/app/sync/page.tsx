@@ -62,6 +62,13 @@ export default function SyncPage() {
     getTransitQuantityBySku,
   } = useWooCommerceStore();
 
+  // API延迟状态
+  const [apiLatency, setApiLatency] = useState<{
+    avg: number;
+    min: number;
+    max: number;
+  } | null>(null);
+
   // Fetch sites on mount
   useEffect(() => {
     fetchSites();
@@ -86,6 +93,27 @@ export default function SyncPage() {
       }
     }
   }, [sites, selectedSiteForSync, setSelectedSiteForSync]);
+
+  // 记录上一次选择的站点ID，用于检测站点切换
+  const [prevSiteId, setPrevSiteId] = useState<string | null>(null);
+
+  // 站点切换时清除产品检测数据，避免显示旧站点的缓存
+  useEffect(() => {
+    if (selectedSiteForSync && prevSiteId && selectedSiteForSync !== prevSiteId) {
+      // 站点发生了切换，清除旧的 productData
+      console.log(`[站点切换] 从 ${prevSiteId} 切换到 ${selectedSiteForSync}，清除旧的产品检测数据`);
+      setInventoryData((prevData) =>
+        prevData.map(item => ({
+          ...item,
+          productData: undefined, // 清除产品检测数据
+        }))
+      );
+      setProductDetectionProgress(''); // 清除检测进度
+      setApiLatency(null); // 清除延迟信息
+      toast.info('已切换站点，请重新执行产品检测');
+    }
+    setPrevSiteId(selectedSiteForSync);
+  }, [selectedSiteForSync, prevSiteId, setInventoryData, setProductDetectionProgress]);
 
   // Process inventory data
   const processedInventoryData = useMemo(() => {
@@ -154,6 +182,9 @@ export default function SyncPage() {
 
   // Product Detection
   const handleProductDetection = async (skus: string[], siteId?: string) => {
+    // 清空之前的延迟信息
+    setApiLatency(null);
+    
     // 过滤掉排除的SKU
     const { filterExcludedSkus, getExcludedPrefixes } = await import('@/lib/sku-exclusion');
     const originalCount = skus.length;
@@ -290,7 +321,21 @@ export default function SyncPage() {
 
             if (response.ok) {
               const data = await response.json();
-              console.log(`[产品检测] 批次完成 - 缓存命中: ${data.stats.cacheHits}, API调用: ${data.stats.apiCalls}`);
+              const latencyInfo = data.stats.latency ? 
+                `, 平均延迟: ${data.stats.latency.avg}ms (最小: ${data.stats.latency.min}ms, 最大: ${data.stats.latency.max}ms)` : '';
+              const cacheInfo = data.stats.cacheHits > 0
+                ? `缓存命中: ${data.stats.cacheHits}, API调用: ${data.stats.apiCalls}`
+                : `全部走API: ${data.stats.apiCalls}个调用`;
+              console.log(`[产品检测] 批次完成 - ${cacheInfo}${latencyInfo}`);
+              
+              // 更新延迟信息
+              if (data.stats.latency) {
+                setApiLatency({
+                  avg: data.stats.latency.avg,
+                  min: data.stats.latency.min,
+                  max: data.stats.latency.max,
+                });
+              }
 
               // 转换结果格式以兼容现有逻辑
               batchResults = data.products.map((product: any) => ({
@@ -692,6 +737,7 @@ export default function SyncPage() {
           sites={sites}
           selectedSiteId={selectedSiteForSync}
           onSiteChange={setSelectedSiteForSync}
+          apiLatency={apiLatency}
         />
 
         {/* Data filters */}

@@ -183,7 +183,16 @@ export interface Database {
 // Create Supabase client singleton
 let supabaseClient: ReturnType<typeof createClient<Database>> | null = null;
 
+// ========== 测试开关：设为 true 禁用所有 Supabase 连接 ==========
+const DISABLE_SUPABASE_FOR_TESTING = false;
+
 export function getSupabaseClient() {
+  // 测试模式：禁用 Supabase
+  if (DISABLE_SUPABASE_FOR_TESTING) {
+    console.log('[Supabase] 已禁用 - 测试模式');
+    return null;
+  }
+
   if (!supabaseClient) {
     const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

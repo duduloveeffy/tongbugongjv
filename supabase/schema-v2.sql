@@ -611,13 +611,7 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   status TEXT NOT NULL, -- 'success', 'error', 'partial'
   error_message TEXT,
   received_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  metadata JSONB, -- Additional event data
-  
-  -- Indexes for performance
-  INDEX (site_id),
-  INDEX (event_type),
-  INDEX (received_at),
-  INDEX (status)
+  metadata JSONB -- Additional event data
 );
 
 -- 9. Webhook Queue (for failed webhook retries)
@@ -634,13 +628,7 @@ CREATE TABLE IF NOT EXISTS webhook_queue (
   scheduled_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   last_attempt_at TIMESTAMP WITH TIME ZONE,
   error_message TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  
-  -- Indexes
-  INDEX (site_id),
-  INDEX (status),
-  INDEX (scheduled_at),
-  INDEX (event_type)
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ================================================

@@ -30,20 +30,34 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (site) {
-      // Try to get product from cache
-      const { data: cachedProduct, error: cacheError } = await supabase
-        .from('wc_products_cache')
-        .select('*')
-        .eq('site_id', site.id)
-        .eq('sku', sku)
-        .single();
+      // Try to get product from cache (check both products and product_variations tables)
+      const [productResult, variationResult] = await Promise.all([
+        supabase
+          .from('products')
+          .select('*')
+          .eq('site_id', site.id)
+          .eq('sku', sku)
+          .single(),
+        supabase
+          .from('product_variations')
+          .select(`
+            *,
+            product:products!inner(site_id)
+          `)
+          .eq('product.site_id', site.id)
+          .eq('sku', sku)
+          .single()
+      ]);
+
+      const cachedProduct = productResult.data || variationResult.data;
+      const cacheError = productResult.error && variationResult.error;
 
       if (cachedProduct && !cacheError) {
         // Transform cached product to match WooCommerce API format
         const product = {
           id: cachedProduct.product_id,
           name: cachedProduct.name,
-          slug: cachedProduct.sku,
+          slug: cachedProduct.slug || cachedProduct.sku,
           permalink: cachedProduct.permalink,
           type: cachedProduct.type,
           status: cachedProduct.status,
@@ -90,44 +104,8 @@ export async function GET(request: NextRequest) {
 
     const products = await response.json();
 
-    // Optionally, cache the result if we have a site ID
-    if (site && products.length > 0) {
-      const product = products[0];
-
-      // Update cache with the fresh data (fire and forget)
-      supabase
-        .from('wc_products_cache')
-        .upsert({
-          site_id: site.id,
-          product_id: product.id,
-          sku: product.sku || `product-${product.id}`,
-          name: product.name,
-          type: product.type,
-          status: product.status,
-          stock_status: product.stock_status,
-          stock_quantity: product.stock_quantity,
-          manage_stock: product.manage_stock,
-          price: parseFloat(product.price || '0'),
-          regular_price: parseFloat(product.regular_price || '0'),
-          sale_price: parseFloat(product.sale_price || '0'),
-          categories: JSON.stringify(product.categories || []),
-          attributes: JSON.stringify(product.attributes || []),
-          variations: JSON.stringify(product.variations || []),
-          meta_data: JSON.stringify(product.meta_data || []),
-          images: JSON.stringify(product.images || []),
-          permalink: product.permalink,
-          synced_at: new Date().toISOString(),
-        }, {
-          onConflict: 'site_id,sku'
-        })
-        .then(({ error }) => {
-          if (error) {
-            console.error('Failed to update cache:', error);
-          } else {
-            console.log(`[Product Cache] Updated cache for SKU: ${sku}`);
-          }
-        });
-    }
+    // Note: Cache updates are handled by dedicated sync tasks
+    // This API fallback is read-only to avoid data inconsistency
 
     return NextResponse.json(products);
   } catch (error) {
@@ -196,15 +174,25 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Batch query cached products
-    const { data: cachedProducts, error } = await supabase
-      .from('wc_products_cache')
-      .select('*')
-      .eq('site_id', site.id)
-      .in('sku', skus);
+    // Batch query cached products from both tables
+    const [productsResult, variationsResult] = await Promise.all([
+      supabase
+        .from('products')
+        .select('*')
+        .eq('site_id', site.id)
+        .in('sku', skus),
+      supabase
+        .from('product_variations')
+        .select(`
+          *,
+          product:products!inner(site_id)
+        `)
+        .eq('product.site_id', site.id)
+        .in('sku', skus)
+    ]);
 
-    if (error) {
-      console.error('Cache query error:', error);
+    if (productsResult.error && variationsResult.error) {
+      console.error('Cache query error:', productsResult.error || variationsResult.error);
       return NextResponse.json({
         success: false,
         error: 'Failed to query cache',
@@ -212,8 +200,14 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Merge results from both tables
+    const allCachedProducts = [
+      ...(productsResult.data || []),
+      ...(variationsResult.data || [])
+    ];
+
     // Transform to WooCommerce format
-    const products = (cachedProducts || []).map(cp => ({
+    const products = allCachedProducts.map(cp => ({
       id: cp.product_id,
       name: cp.name,
       sku: cp.sku,

@@ -35,22 +35,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Initialize or update sync status
-    const { error: statusError } = await supabase
-      .from('wc_products_sync_status')
-      .upsert({
-        site_id: siteId,
-        sync_status: 'syncing',
-        sync_progress: 0,
-        sync_error: null,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'site_id'
-      });
-
-    if (statusError) {
-      console.error('Failed to update sync status:', statusError);
-    }
+    // Note: We don't track detailed sync status anymore
+    // Just use wc_sites.last_sync_at for basic tracking
+    console.log(`[Product Cache Sync] Starting sync for site: ${site.name} (${siteId})`);
 
     // Start sync process
     const syncStartTime = Date.now();
@@ -64,17 +51,8 @@ export async function POST(request: NextRequest) {
     const auth = Buffer.from(`${site.api_key}:${site.api_secret}`).toString('base64');
     const baseUrl = site.url.replace(/\/$/, '');
 
-    console.log(`[Product Cache Sync] Starting sync for site: ${site.name} (${siteId})`);
-
-    // Clear existing cache for this site (optional - could also do incremental updates)
-    const { error: clearError } = await supabase
-      .from('wc_products_cache')
-      .delete()
-      .eq('site_id', siteId);
-
-    if (clearError) {
-      console.warn('Failed to clear existing cache:', clearError);
-    }
+    // Note: We don't clear cache - incremental updates are handled by /api/sync/products/incremental
+    // This endpoint is primarily for initial cache population
 
     while (hasMore) {
       try {
@@ -127,11 +105,13 @@ export async function POST(request: NextRequest) {
           synced_at: new Date().toISOString(),
         }));
 
-        // Batch insert products
+        // Batch insert products into products table (using upsert to handle updates)
         if (productsToInsert.length > 0) {
           const { error: insertError } = await supabase
-            .from('wc_products_cache')
-            .insert(productsToInsert);
+            .from('products')
+            .upsert(productsToInsert, {
+              onConflict: 'site_id,product_id'
+            });
 
           if (insertError) {
             console.error(`Failed to insert products batch ${page}:`, insertError);
@@ -141,19 +121,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Update progress
+        // Log progress (no status table to update)
         const progress = totalCount > 0 ? (syncedCount / totalCount) * 100 : 0;
-        await supabase
-          .from('wc_products_sync_status')
-          .update({
-            total_products: totalCount,
-            synced_products: syncedCount,
-            sync_progress: Math.round(progress * 100) / 100,
-            sync_status: 'syncing',
-            updated_at: new Date().toISOString()
-          })
-          .eq('site_id', siteId);
-
         console.log(`[Product Cache Sync] Progress: ${syncedCount}/${totalCount} (${progress.toFixed(2)}%)`);
 
         // Check if there are more pages
@@ -172,24 +141,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update final sync status
+    // Update site's last sync timestamp
     const syncDuration = Date.now() - syncStartTime;
-    const { error: finalStatusError } = await supabase
-      .from('wc_products_sync_status')
+    const { error: updateError } = await supabase
+      .from('wc_sites')
       .update({
-        total_products: totalCount,
-        synced_products: syncedCount,
-        last_sync_at: new Date().toISOString(),
-        last_sync_duration_ms: syncDuration,
-        sync_status: 'completed',
-        sync_progress: 100,
-        sync_error: null,
-        updated_at: new Date().toISOString()
+        last_sync_at: new Date().toISOString()
       })
-      .eq('site_id', siteId);
+      .eq('id', siteId);
 
-    if (finalStatusError) {
-      console.error('Failed to update final sync status:', finalStatusError);
+    if (updateError) {
+      console.error('Failed to update site sync timestamp:', updateError);
     }
 
     console.log(`[Product Cache Sync] Completed: ${syncedCount} products synced in ${(syncDuration / 1000).toFixed(2)}s`);
@@ -206,19 +168,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Product cache sync error:', error);
 
-    // Update error status
-    const { siteId } = await request.json().catch(() => ({ siteId: null }));
-    if (siteId) {
-      await supabase
-        .from('wc_products_sync_status')
-        .update({
-          sync_status: 'error',
-          sync_error: error instanceof Error ? error.message : 'Unknown error',
-          updated_at: new Date().toISOString()
-        })
-        .eq('site_id', siteId);
-    }
-
     return NextResponse.json(
       {
         success: false,
@@ -231,6 +180,14 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint to check sync status
 export async function GET(request: NextRequest) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { success: false, error: 'Supabase not configured' },
+      { status: 503 }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const siteId = searchParams.get('siteId');
@@ -242,32 +199,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get sync status
-    const { data: status, error } = await supabase
-      .from('wc_products_sync_status')
-      .select('*')
-      .eq('site_id', siteId)
+    // Get site info for last sync timestamp
+    const { data: site, error: siteError } = await supabase
+      .from('wc_sites')
+      .select('last_sync_at')
+      .eq('id', siteId)
       .single();
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-      throw error;
+    if (siteError) {
+      throw siteError;
     }
 
-    // Get cache statistics
+    // Get cache statistics from products table
     const { count: cacheCount } = await supabase
-      .from('wc_products_cache')
+      .from('products')
       .select('*', { count: 'exact', head: true })
       .eq('site_id', siteId);
 
     return NextResponse.json({
       success: true,
       data: {
-        status: status || {
+        status: {
           site_id: siteId,
-          sync_status: 'idle',
-          total_products: 0,
-          synced_products: 0,
-          sync_progress: 0,
+          sync_status: 'idle', // Simplified - no real-time sync tracking
+          total_products: cacheCount || 0,
+          synced_products: cacheCount || 0,
+          sync_progress: 100,
+          last_sync_at: site?.last_sync_at,
+          last_sync_duration_ms: null,
+          sync_error: null,
         },
         cacheCount: cacheCount || 0,
       }

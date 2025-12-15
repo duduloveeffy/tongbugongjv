@@ -31,134 +31,65 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseClient();
-    if (!supabase) {
-      return NextResponse.json({
-        error: 'Supabase not configured'
-      }, { status: 503 });
-    }
+    const results = new Map<string, ProductInfo>();
+    let cacheHits = 0;
 
-    console.log(`[Product Detection] Checking ${skus.length} SKUs for site ${siteId}`);
+    console.log(`[Product Detection] 开始检测 ${skus.length} 个SKU for site ${siteId}`);
 
-    // 1. 同时查询 products 表和 product_variations 表
-    const [productsResult, variationsResult] = await Promise.all([
-      // 查询主产品表
-      supabase
+    // 1. 先查询 Supabase 缓存
+    if (supabase) {
+      console.log(`[Product Detection] 查询缓存...`);
+
+      // 从 products 表查询缓存（使用 site_id 确保站点隔离）
+      const { data: cachedProducts, error: cacheError } = await supabase
         .from('products')
         .select('sku, status, stock_status, stock_quantity, permalink')
         .eq('site_id', siteId)
-        .in('sku', skus),
-      // 查询变体产品表（通过 JOIN products 表来过滤 site_id）
-      supabase
-        .from('product_variations')
-        .select(`
-          sku,
-          status,
-          stock_status,
-          stock_quantity,
-          product:products!inner(site_id)
-        `)
-        .eq('product.site_id', siteId)
-        .in('sku', skus)
-    ]);
+        .in('sku', skus);
 
-    const { data: cachedProducts, error: productsError } = productsResult;
-    const { data: cachedVariations, error: variationsError } = variationsResult;
-
-    if (productsError) {
-      console.error('[Product Detection] Products query error:', productsError);
-    }
-    if (variationsError) {
-      console.error('[Product Detection] Variations query error:', variationsError);
-    }
-
-    // 2. 构建结果映射
-    const results = new Map<string, ProductInfo>();
-    const foundSkus = new Set<string>();
-    let cacheHits = 0;
-    let productsHits = 0;
-    let variationsHits = 0;
-
-    // 处理 products 表中找到的产品
-    if (cachedProducts && cachedProducts.length > 0) {
-      for (const product of cachedProducts) {
-        results.set(product.sku, {
-          sku: product.sku,
-          isOnline: product.status === 'publish',
-          status: product.status || 'unknown',
-          stockStatus: product.stock_status || 'unknown',
-          stockQuantity: product.stock_quantity,
-          productUrl: product.permalink,
-          source: 'cache'
-        });
-        foundSkus.add(product.sku);
-        productsHits++;
-      }
-    }
-
-    // 处理 product_variations 表中找到的变体产品（补充 products 表没找到的）
-    if (cachedVariations && cachedVariations.length > 0) {
-      for (const variation of cachedVariations) {
-        if (!foundSkus.has(variation.sku)) {
-          results.set(variation.sku, {
-            sku: variation.sku,
-            isOnline: variation.status === 'publish',
-            status: variation.status || 'unknown',
-            stockStatus: variation.stock_status || 'unknown',
-            stockQuantity: variation.stock_quantity,
-            productUrl: undefined,
+      if (cacheError) {
+        console.warn(`[Product Detection] 缓存查询失败:`, cacheError.message);
+      } else if (cachedProducts && cachedProducts.length > 0) {
+        // 处理缓存命中的产品
+        cachedProducts.forEach(product => {
+          results.set(product.sku, {
+            sku: product.sku,
+            isOnline: product.status === 'publish',
+            status: product.status || 'unknown',
+            stockStatus: product.stock_status || 'unknown',
+            stockQuantity: product.stock_quantity,
+            productUrl: product.permalink,
             source: 'cache'
           });
-          foundSkus.add(variation.sku);
-          variationsHits++;
-        }
+          cacheHits++;
+        });
+        console.log(`[Product Detection] 缓存命中 ${cacheHits} 个产品`);
       }
+    } else {
+      console.log(`[Product Detection] Supabase 未配置，跳过缓存查询`);
     }
 
-    cacheHits = productsHits + variationsHits;
-    console.log(`[Product Detection] Cache hits: ${cacheHits}/${skus.length} (products: ${productsHits}, variations: ${variationsHits})`);
+    // 2. 找出缓存未命中的 SKU
+    const missingSkus = skus.filter(sku => !results.has(sku));
+    console.log(`[Product Detection] 缓存未命中 ${missingSkus.length} 个SKU，需要从API获取`);
 
-    // 3. 找出两个表都没找到的 SKU
-    const missingSkus = skus.filter(sku => !foundSkus.has(sku));
+    // 3. 从 WooCommerce API 获取缓存未命中的产品
+    let latencyStats = { total: 0, count: 0, min: Infinity, max: 0, latencies: [] as number[] };
 
     if (missingSkus.length > 0) {
-      console.log(`[Product Detection] Missing SKUs: ${missingSkus.length}, will fetch from API`);
-
-      // 检查是否有 API 凭据
       if (!siteUrl || !consumerKey || !consumerSecret) {
-        // 没有 API 凭据，尝试从站点配置获取
-        const { data: site } = await supabase
-          .from('wc_sites')
-          .select('url, api_key, api_secret')
-          .eq('id', siteId)
-          .single();
-
-        if (!site || !site.api_key || !site.api_secret) {
-          // 无法获取 API 凭据，返回部分结果
-          console.warn('[Product Detection] No API credentials available for missing SKUs');
-          missingSkus.forEach(sku => {
-            results.set(sku, {
-              sku,
-              isOnline: false,
-              status: 'not_found',
-              stockStatus: 'unknown',
-              source: 'cache'
-            });
+        console.warn('[Product Detection] 需要API凭据，请提供siteUrl/consumerKey/consumerSecret');
+        missingSkus.forEach(sku => {
+          results.set(sku, {
+            sku,
+            isOnline: false,
+            status: 'error',
+            stockStatus: 'unknown',
+            source: 'api'
           });
-        } else {
-          // 使用站点配置的 API 凭据
-          await fetchFromWooCommerce(
-            missingSkus,
-            site.url,
-            site.api_key,
-            site.api_secret,
-            siteId,
-            results,
-            supabase
-          );
-        }
+        });
       } else {
-        // 使用提供的 API 凭据
-        await fetchFromWooCommerce(
+        latencyStats = await fetchFromWooCommerce(
           missingSkus,
           siteUrl,
           consumerKey,
@@ -174,14 +105,22 @@ export async function POST(request: NextRequest) {
     const productList = Array.from(results.values());
 
     // 统计信息
+    const apiCalls = productList.filter(p => p.source === 'api').length;
     const stats = {
       total: skus.length,
       cacheHits,
-      apiCalls: productList.filter(p => p.source === 'api').length,
-      notFound: productList.filter(p => p.status === 'not_found').length
+      apiCalls,
+      notFound: productList.filter(p => p.status === 'not_found').length,
+      latency: {
+        avg: latencyStats.count > 0 ? Math.round(latencyStats.total / latencyStats.count) : 0,
+        min: latencyStats.min === Infinity ? 0 : latencyStats.min,
+        max: latencyStats.max,
+        total: latencyStats.total,
+        count: latencyStats.count
+      }
     };
 
-    console.log(`[Product Detection] Complete - Cache: ${stats.cacheHits}, API: ${stats.apiCalls}, Not Found: ${stats.notFound}`);
+    console.log(`[Product Detection] 完成 - 缓存命中: ${cacheHits}, API调用: ${apiCalls}, 未找到: ${stats.notFound}, 平均延迟: ${stats.latency.avg}ms`);
 
     return NextResponse.json({
       success: true,
@@ -197,7 +136,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 从 WooCommerce API 获取产品并保存到缓存
+// 从 WooCommerce API 获取产品 - 并发版本
 async function fetchFromWooCommerce(
   skus: string[],
   siteUrl: string,
@@ -206,13 +145,32 @@ async function fetchFromWooCommerce(
   siteId: string,
   results: Map<string, ProductInfo>,
   supabase: any
-) {
+): Promise<{ total: number; count: number; min: number; max: number; latencies: number[] }> {
   const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
   const baseUrl = siteUrl.replace(/\/$/, '');
-  const productsToCache = [];
+  const productsToCache: any[] = [];
 
-  // 批量获取产品（WooCommerce API 支持批量 SKU 查询）
-  for (const sku of skus) {
+  // 延迟统计
+  const latencyStats = {
+    total: 0,
+    count: 0,
+    min: Infinity,
+    max: 0,
+    latencies: [] as number[]
+  };
+
+  // 并发配置：每批20个并发，避免API限流
+  const concurrency = 20;
+  const batches: string[][] = [];
+  for (let i = 0; i < skus.length; i += concurrency) {
+    batches.push(skus.slice(i, i + concurrency));
+  }
+
+  console.log(`[Product Detection] 并发处理: ${skus.length}个SKU, 分${batches.length}批, 每批${concurrency}个并发`);
+
+  // 处理单个SKU的函数
+  const fetchSingleSku = async (sku: string): Promise<void> => {
+    const startTime = Date.now();
     try {
       const response = await fetch(`${baseUrl}/wp-json/wc/v3/products?sku=${sku}`, {
         headers: {
@@ -220,6 +178,15 @@ async function fetchFromWooCommerce(
           'Content-Type': 'application/json',
         },
       });
+
+      const latency = Date.now() - startTime;
+
+      // 记录延迟统计
+      latencyStats.total += latency;
+      latencyStats.count++;
+      latencyStats.min = Math.min(latencyStats.min, latency);
+      latencyStats.max = Math.max(latencyStats.max, latency);
+      latencyStats.latencies.push(latency);
 
       if (response.ok) {
         const products = await response.json();
@@ -243,7 +210,7 @@ async function fetchFromWooCommerce(
             site_id: siteId,
             product_id: product.id,
             sku: product.sku || sku,
-            name: product.name,
+            name: product.name || sku,  // name 是 NOT NULL，用 sku 作为后备
             slug: product.slug,
             permalink: product.permalink,
             type: product.type,
@@ -287,12 +254,17 @@ async function fetchFromWooCommerce(
           source: 'api'
         });
       }
-
-      // 添加小延迟避免速率限制
-      await new Promise(resolve => setTimeout(resolve, 50));
-
     } catch (error: any) {
-      console.error(`[Product Detection] Failed to fetch SKU ${sku}:`, error.message);
+      const latency = Date.now() - startTime;
+      console.error(`[Product Detection] Failed to fetch SKU ${sku} (延迟: ${latency}ms):`, error.message);
+
+      // 记录错误请求的延迟
+      latencyStats.total += latency;
+      latencyStats.count++;
+      latencyStats.min = Math.min(latencyStats.min, latency);
+      latencyStats.max = Math.max(latencyStats.max, latency);
+      latencyStats.latencies.push(latency);
+
       results.set(sku, {
         sku,
         isOnline: false,
@@ -301,24 +273,52 @@ async function fetchFromWooCommerce(
         source: 'api'
       });
     }
-  }
+  };
 
-  // 批量保存到缓存
-  if (productsToCache.length > 0) {
-    try {
-      const { error: upsertError } = await supabase
-        .from('products')
-        .upsert(productsToCache, {
-          onConflict: 'site_id,product_id',
-        });
+  // 分批并发处理
+  const batchStartTime = Date.now();
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    const batchBatchStartTime = Date.now();
 
-      if (upsertError) {
-        console.error('[Product Detection] Failed to cache products:', upsertError);
-      } else {
-        console.log(`[Product Detection] Cached ${productsToCache.length} products`);
-      }
-    } catch (error: any) {
-      console.error('[Product Detection] Cache save error:', error);
+    // 并发执行当前批次的所有SKU
+    await Promise.all(batch.map(sku => fetchSingleSku(sku)));
+
+    const batchLatency = Date.now() - batchBatchStartTime;
+    const avgLatency = latencyStats.count > 0 ? Math.round(latencyStats.total / latencyStats.count) : 0;
+
+    console.log(`[Product Detection] 批次 ${i + 1}/${batches.length} 完成 (${batch.length}个SKU, 批次耗时: ${batchLatency}ms, 平均延迟: ${avgLatency}ms)`);
+
+    // 批次之间添加小延迟，避免API限流
+    if (i < batches.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
+
+  const totalTime = Date.now() - batchStartTime;
+  const avgLatency = latencyStats.count > 0 ? Math.round(latencyStats.total / latencyStats.count) : 0;
+
+  console.log(`[Product Detection] API延迟统计 - 总请求: ${latencyStats.count}, 总耗时: ${totalTime}ms, 平均延迟: ${avgLatency}ms`);
+
+  // 保存到缓存
+  if (supabase && productsToCache.length > 0) {
+    console.log(`[Product Detection] 保存 ${productsToCache.length} 个产品到缓存...`);
+
+    // 使用 upsert 避免重复 (products 表的唯一约束是 site_id + product_id)
+    const { error: upsertError } = await supabase
+      .from('products')
+      .upsert(productsToCache, {
+        onConflict: 'site_id,product_id',
+        ignoreDuplicates: false
+      });
+
+    if (upsertError) {
+      console.error(`[Product Detection] 缓存保存失败:`, upsertError.message);
+    } else {
+      console.log(`[Product Detection] 缓存保存成功: ${productsToCache.length} 个产品`);
+    }
+  }
+
+  // 返回延迟统计
+  return latencyStats;
 }

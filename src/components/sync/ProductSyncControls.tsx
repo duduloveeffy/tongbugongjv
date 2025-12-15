@@ -28,6 +28,11 @@ interface ProductSyncControlsProps {
   sites?: SiteInfo[];
   selectedSiteId?: string | null;
   onSiteChange?: (siteId: string) => void;
+  apiLatency?: {
+    avg: number;
+    min: number;
+    max: number;
+  } | null;
 }
 
 export function ProductSyncControls({
@@ -42,6 +47,7 @@ export function ProductSyncControls({
   sites,
   selectedSiteId,
   onSiteChange,
+  apiLatency,
 }: ProductSyncControlsProps) {
   const [batchSize, setBatchSize] = useState(-1); // -1 表示全部
   const [detectionProgress, setDetectionProgress] = useState(0);
@@ -109,14 +115,29 @@ export function ProductSyncControls({
           <div className="space-y-4 border-t pt-4">
             {/* 使用共享的站点选择器 */}
             {sites && sites.length > 0 && (
-              <SiteSelector
-                sites={sites}
-                mode="single"
-                value={selectedSiteId || undefined}
-                onChange={(value) => onSiteChange?.(value as string)}
-                label="选择目标站点"
-                placeholder="请选择要同步的站点"
-              />
+              <div className="space-y-2">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <SiteSelector
+                      sites={sites}
+                      mode="single"
+                      value={selectedSiteId || undefined}
+                      onChange={(value) => onSiteChange?.(value as string)}
+                      label="选择目标站点"
+                      placeholder="请选择要同步的站点"
+                    />
+                  </div>
+                  {apiLatency && (
+                    <div className="text-sm text-muted-foreground pt-6">
+                      <span className="font-medium">API延迟: </span>
+                      <span className="text-blue-600 font-semibold">{apiLatency.avg}ms</span>
+                      <span className="text-gray-500 ml-1 text-xs">
+                        (最小: {apiLatency.min}ms, 最大: {apiLatency.max}ms)
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {/* 同步需求统计 */}

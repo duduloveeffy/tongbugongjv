@@ -357,7 +357,8 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
         const { settings } = get();
         const { 
           skus, 
-          dataSource = 'woocommerce',
+          // 只允许woocommerce
+          dataSource,
           siteIds,
           siteId,
           statuses = ['completed', 'processing'], 
@@ -372,180 +373,94 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
         }
 
         try {
-          // 根据数据源选择不同的API端点
-          if (dataSource === 'supabase') {
-            // Supabase数据源
+          // BEGIN: 强制只用Woo API，ban掉supabase
+          // 下面所有与supabase有关的分支全部移除，只留下woocommerce请求相关内容
+          // END: ban掉supabase分支
+
+          // 检查凭证
+          if (!settings.consumerKey || !settings.consumerSecret || !settings.siteUrl) {
+            throw new Error('WooCommerce API credentials not configured');
+          }
+
+          // 分批处理SKU
+          const batchSize = 50;
+          const batches = [];
+          for (let i = 0; i < skus.length; i += batchSize) {
+            batches.push(skus.slice(i, i + batchSize));
+          }
+
+          const allSalesData: Record<string, any> = {};
+          let totalProcessed = 0;
+
+          for (let i = 0; i < batches.length; i++) {
+            const batch = batches[i];
+            if (!batch) continue;
+            
             if (onProgress) {
               onProgress({
-                current: 0,
+                current: totalProcessed,
                 total: skus.length,
-                message: `正在查询销量数据...`
+                message: `正在处理批次 ${i + 1}/${batches.length}，包含 ${batch.length} 个SKU...`
               });
             }
 
-            const response = await fetch('/api/sales-analysis/supabase', {
+            const response = await fetch('/api/sales-analysis/woocommerce', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                skus,
-                siteIds,
-                statuses,
-                dateStart: startDate,
-                dateEnd: endDate,
+                siteId,
+                siteUrl: settings.siteUrl,
+                consumerKey: settings.consumerKey,
+                consumerSecret: settings.consumerSecret,
+                skus: batch,
+                statuses: statuses.join(','),
+                dateStart: startDate ? `${startDate}T00:00:00` : undefined,
+                dateEnd: endDate ? `${endDate}T23:59:59` : undefined,
                 daysBack,
               }),
             });
 
             if (!response.ok) {
               const errorData = await response.json().catch(() => ({}));
-              throw new Error(`Supabase API Error: ${response.status} ${errorData.error || response.statusText}`);
+              throw new Error(`WooCommerce API Error: ${response.status} ${errorData.error || response.statusText}`);
             }
 
             const result = await response.json();
             
             if (result.success) {
-              if (onProgress) {
-                onProgress({
-                  current: skus.length,
-                  total: skus.length,
-                  message: `✅ 成功从Supabase获取销量数据`
-                });
-              }
-              
-              // 转换Supabase数据格式为统一格式
-              const salesDataArray: any[] = [];
-              Object.keys(result.data).forEach(sku => {
-                const skuData = result.data[sku];
-                // 如果是多站点数据，使用总计
-                const itemData = skuData.total || {
-                  orderCount: 0,
-                  salesQuantity: 0,
-                  orderCount30d: 0,
-                  salesQuantity30d: 0,
-                };
-                // 添加SKU和销量字段
-                salesDataArray.push({
-                  sku,
-                  orderCount: itemData.orderCount || 0,
-                  salesQuantity: itemData.salesQuantity || 0,
-                  orderCount30d: itemData.orderCount30d || 0,
-                  salesQuantity30d: itemData.salesQuantity30d || 0,
-                  // 附加站点详细信息
-                  bySite: skuData.bySite || null
-                });
-              });
-
-              return { success: true, data: salesDataArray };
-            } else {
-              throw new Error(result.error || 'Supabase sales analysis failed');
-            }
-            
-          } else {
-            // WooCommerce数据源（原有逻辑，但支持站点选择）
-            let apiUrl = settings.siteUrl;
-            let apiKey = settings.consumerKey;
-            let apiSecret = settings.consumerSecret;
-            
-            // 如果提供了siteId，尝试从Supabase获取站点配置
-            if (siteId) {
-              const siteResponse = await fetch(`/api/sales-analysis/woocommerce?siteId=${siteId}`);
-              if (siteResponse.ok) {
-                const siteData = await siteResponse.json();
-                if (siteData.site) {
-                  apiUrl = siteData.site.url;
-                  apiKey = siteData.site.api_key;
-                  apiSecret = siteData.site.api_secret;
-                }
-              }
-            }
-            
-            // 检查凭证
-            if (!apiKey || !apiSecret || !apiUrl) {
-              throw new Error('WooCommerce API credentials not configured');
-            }
-
-            // 分批处理SKU
-            const batchSize = 50;
-            const batches = [];
-            for (let i = 0; i < skus.length; i += batchSize) {
-              batches.push(skus.slice(i, i + batchSize));
-            }
-
-            const allSalesData: Record<string, any> = {};
-            let totalProcessed = 0;
-
-            for (let i = 0; i < batches.length; i++) {
-              const batch = batches[i];
-              if (!batch) continue;
+              // 合并批次结果
+              Object.assign(allSalesData, result.data);
+              totalProcessed += batch.length;
               
               if (onProgress) {
                 onProgress({
                   current: totalProcessed,
                   total: skus.length,
-                  message: `正在处理批次 ${i + 1}/${batches.length}，包含 ${batch.length} 个SKU...`
+                  message: `已完成 ${totalProcessed}/${skus.length} 个SKU的销量分析`
                 });
               }
-
-              const response = await fetch('/api/sales-analysis/woocommerce', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  siteId,
-                  siteUrl: apiUrl,
-                  consumerKey: apiKey,
-                  consumerSecret: apiSecret,
-                  skus: batch,
-                  statuses: statuses.join(','),
-                  dateStart: startDate ? `${startDate}T00:00:00` : undefined,
-                  dateEnd: endDate ? `${endDate}T23:59:59` : undefined,
-                  daysBack,
-                }),
-              });
-
-              if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(`WooCommerce API Error: ${response.status} ${errorData.error || response.statusText}`);
-              }
-
-              const result = await response.json();
-              
-              if (result.success) {
-                // 合并批次结果
-                Object.assign(allSalesData, result.data);
-                totalProcessed += batch.length;
-                
-                if (onProgress) {
-                  onProgress({
-                    current: totalProcessed,
-                    total: skus.length,
-                    message: `已完成 ${totalProcessed}/${skus.length} 个SKU的销量分析`
-                  });
-                }
-              } else {
-                throw new Error(result.error || 'Sales analysis failed');
-              }
-
-              // 添加延迟避免API限流
-              if (i < batches.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-              }
+            } else {
+              throw new Error(result.error || 'Sales analysis failed');
             }
 
-            // Convert to array format consistent with Supabase response
-            const salesDataArray = Object.entries(allSalesData).map(([sku, data]: [string, any]) => ({
-              sku,
-              orderCount: data.orderCount || 0,
-              salesQuantity: data.salesQuantity || 0,
-              orderCount30d: data.orderCount30d || 0,
-              salesQuantity30d: data.salesQuantity30d || 0
-            }));
-
-            return { success: true, data: salesDataArray };
+            // 添加延迟避免API限流
+            if (i < batches.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
           }
+
+          // Convert to array format consistent with Supabase response
+          const salesDataArray = Object.entries(allSalesData).map(([sku, data]: [string, any]) => ({
+            sku,
+            orderCount: data.orderCount || 0,
+            salesQuantity: data.salesQuantity || 0,
+            orderCount30d: data.orderCount30d || 0,
+            salesQuantity30d: data.salesQuantity30d || 0
+          }));
+
+          return { success: true, data: salesDataArray };
 
         } catch (error: any) {
           console.error('Sales analysis failed:', error);
