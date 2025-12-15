@@ -42,7 +42,9 @@
       "Bash(git restore:*)",
       "Bash(xargs:*)",
       "Bash(git reset:*)",
-      "Bash(git clean:*)"
+      "Bash(git clean:*)",
+      "Bash(cat:*)",
+      "Bash(npm info:*)"
     ],
     "deny": []
   }
