@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { WeekPicker, type WeekValue } from '@/components/reports/WeekPicker';
+import { WeekNote } from '@/components/reports/WeekNote';
 import { OverviewStats } from '@/components/reports/OverviewStats';
 import { BrandComparison } from '@/components/reports/BrandComparison';
 import { CountryStatsTable } from '@/components/reports/CountryStatsTable';
@@ -465,30 +466,38 @@ export default function VapsoloWeeklyReport() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* 页面标题和操作 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <FileText className="h-8 w-8 text-green-600" />
-          <div>
-            <h1 className="text-3xl font-bold">Vapsolo 周报</h1>
-            <p className="text-sm text-muted-foreground">16个站点销量统计（含换算规则）· 周环比对比</p>
+    <div className="min-h-screen">
+      {/* 固定顶部标题栏 */}
+      <div className="sticky top-0 z-50 bg-background border-b no-print">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FileText className="h-8 w-8 text-green-600" />
+              <div>
+                <h1 className="text-3xl font-bold">Vapsolo 周报</h1>
+                <p className="text-sm text-muted-foreground">16个站点销量统计（含换算规则）· 周环比对比</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <WeekPicker value={selectedWeek} onChange={setSelectedWeek} />
+              {/* 备注功能暂时隐藏，待数据库表创建后启用 */}
+              {/* <WeekNote year={selectedWeek.year} week={selectedWeek.week} /> */}
+              <Button onClick={handleExportExcel} disabled={!reportData || loading}>
+                <Download className="h-4 w-4 mr-2" />
+                导出 Excel
+              </Button>
+              <Button onClick={handlePrint} disabled={!reportData || loading} variant="outline">
+                <Printer className="h-4 w-4 mr-2" />
+                打印/PDF
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <WeekPicker value={selectedWeek} onChange={setSelectedWeek} />
-          <Button onClick={handleExportExcel} disabled={!reportData || loading}>
-            <Download className="h-4 w-4 mr-2" />
-            导出 Excel
-          </Button>
-          <Button onClick={handlePrint} disabled={!reportData || loading} variant="outline">
-            <Printer className="h-4 w-4 mr-2" />
-            打印/PDF
-          </Button>
         </div>
       </div>
 
-      {/* 加载状态 */}
+      {/* 主内容区域 */}
+      <div className="container mx-auto p-6 space-y-6">
+        {/* 加载状态 */}
       {loading && (
         <Card>
           <CardContent className="flex items-center justify-center py-16">
@@ -684,14 +693,15 @@ export default function VapsoloWeeklyReport() {
         </div>
       )}
 
-      {/* 无数据状态 */}
-      {!loading && !reportData && (
-        <Card>
-          <CardContent className="text-center py-16">
-            <p className="text-sm text-muted-foreground">该周暂无数据</p>
-          </CardContent>
-        </Card>
-      )}
+        {/* 无数据状态 */}
+        {!loading && !reportData && (
+          <Card>
+            <CardContent className="text-center py-16">
+              <p className="text-sm text-muted-foreground">该周暂无数据</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

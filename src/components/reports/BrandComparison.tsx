@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   BarChart,
   Bar,
@@ -188,68 +187,78 @@ export function BrandComparison({
             </div>
           </div>
 
-          {/* 可视化图表 - 带 Tab 切换 */}
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="orders">订单数</TabsTrigger>
-              <TabsTrigger value="quantity">销售量</TabsTrigger>
-              <TabsTrigger value="revenue">销售额</TabsTrigger>
-            </TabsList>
+          {/* 可视化图表 - 只显示销售额，打印时隐藏Tab切换 */}
+          <div>
+            {/* Tab 切换按钮 - 打印时隐藏 */}
+            <div className="no-print mb-4">
+              <div className="grid w-full grid-cols-3 bg-muted p-1 rounded-lg">
+                {(['orders', 'quantity', 'revenue'] as const).map((metric) => (
+                  <button
+                    key={metric}
+                    onClick={() => setActiveTab(metric)}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      activeTab === metric
+                        ? 'bg-background shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {getMetricLabel(metric)}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-            {(['orders', 'quantity', 'revenue'] as const).map((metric) => (
-              <TabsContent key={metric} value={metric} className="mt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  {/* 柱状图 */}
-                  <div className="bg-white border rounded-lg p-4">
-                    <div className="text-sm font-medium text-muted-foreground mb-2">
-                      {getMetricLabel(metric)}对比
-                    </div>
-                    <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={barChartData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" fontSize={12} />
-                        <YAxis fontSize={12} />
-                        <Tooltip
-                          formatter={(value: number) => formatValue(value, metric)}
-                        />
-                        <Bar
-                          dataKey={getMetricLabel(metric)}
-                          fill="#3b82f6"
-                          radius={[4, 4, 0, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* 饼图 */}
-                  <div className="bg-white border rounded-lg p-4">
-                    <div className="text-sm font-medium text-muted-foreground mb-2">
-                      {getMetricLabel(metric)}占比
-                    </div>
-                    <ResponsiveContainer width="100%" height={250}>
-                      <PieChart>
-                        <Pie
-                          data={getPieData(metric)}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(1)}%`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {getPieData(metric).map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value: number) => formatValue(value, metric)} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+            {/* 图表内容 */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* 柱状图 */}
+              <div className="bg-white border rounded-lg p-4">
+                <div className="text-sm font-medium text-muted-foreground mb-2">
+                  {getMetricLabel(activeTab)}对比
                 </div>
-              </TabsContent>
-            ))}
-          </Tabs>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={barChartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" fontSize={12} />
+                    <YAxis fontSize={12} />
+                    <Tooltip
+                      formatter={(value: number) => formatValue(value, activeTab)}
+                    />
+                    <Bar
+                      dataKey={getMetricLabel(activeTab)}
+                      fill="#3b82f6"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* 饼图 */}
+              <div className="bg-white border rounded-lg p-4">
+                <div className="text-sm font-medium text-muted-foreground mb-2">
+                  {getMetricLabel(activeTab)}占比
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={getPieData(activeTab)}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(1)}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {getPieData(activeTab).map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => formatValue(value, activeTab)} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -126,11 +126,21 @@
 
 /* 打印样式优化 */
 @media print {
-  /* 隐藏不需要打印的元素 */
-  button,
+  /* 隐藏不需要打印的元素 - 只隐藏导航和明确标记的元素 */
   .no-print,
   nav,
   aside {
+    display: none !important;
+  }
+
+  /* 隐藏页面顶部的操作按钮区域 */
+  .container > .flex:first-child button {
+    display: none !important;
+  }
+
+  /* 隐藏卡片内的交互按钮（如排序、切换按钮） */
+  [data-print-hide],
+  .recharts-legend-wrapper button {
     display: none !important;
   }
 
@@ -138,55 +148,147 @@
   body {
     background: white !important;
     color: black !important;
+    font-size: 10pt !important;
   }
 
   /* 确保内容完整显示 */
   .container {
     max-width: 100% !important;
-    padding: 0 !important;
+    padding: 0.5cm !important;
   }
 
   /* 避免卡片断页 */
-  .card,
-  table,
-  .chart {
+  section {
     page-break-inside: avoid;
     break-inside: avoid;
   }
 
-  /* 优化表格打印 */
+  /* 表格可以跨页 */
   table {
     width: 100% !important;
-    font-size: 10pt;
+    font-size: 9pt !important;
   }
 
-  /* 移除阴影和圆角（节省墨水） */
+  /* 表格行避免断页 */
+  tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* 移除阴影（保留圆角以保持视觉效果） */
   * {
     box-shadow: none !important;
-    border-radius: 0 !important;
   }
 
   /* 优化页面边距 */
   @page {
-    margin: 1cm;
+    margin: 0.8cm;
+    size: A4;
   }
 
-  /* 保留颜色（可选） */
+  /* 保留颜色 */
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     color-adjust: exact !important;
   }
 
-  /* 确保图表正确显示 */
+  /* 确保图表正确显示 - Recharts 特别处理 */
+  .recharts-wrapper {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 200px !important;
+  }
+
+  .recharts-surface {
+    width: 100% !important;
+    overflow: visible !important;
+  }
+
   svg, canvas {
     max-width: 100% !important;
-    height: auto !important;
+  }
+
+  /* 强制趋势图容器显示 */
+  .recharts-responsive-container {
+    width: 100% !important;
+    min-height: 200px !important;
   }
 
   /* 标题保持在页面顶部 */
   h1, h2, h3 {
     page-break-after: avoid;
     break-after: avoid;
+  }
+
+  /* 确保 section 之间有分页 */
+  section + section {
+    page-break-before: auto;
+  }
+
+  /* 趋势图网格布局打印优化 - 改为单列 */
+  .grid.lg\:grid-cols-3 {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+
+  /* 每个趋势图卡片确保完整显示 */
+  .grid.lg\:grid-cols-3 > div {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-bottom: 0.5rem;
+  }
+
+  /* 图表卡片打印优化 */
+  .print-chart-card {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* 确保 Recharts 图表在打印时正确渲染 */
+  .print-chart-card .recharts-wrapper,
+  .print-chart-card .recharts-responsive-container {
+    width: 100% !important;
+    height: 180px !important;
+    min-height: 180px !important;
+  }
+
+  /* 隐藏图表交互按钮但保持图表可见 */
+  .print-chart-card .no-print {
+    display: none !important;
+  }
+
+  /* 确保表格边框在打印时可见 */
+  table, th, td {
+    border-color: #ddd !important;
+  }
+
+  /* 打印时减小 Card 内边距 */
+  .print-chart-card [class*="CardContent"] {
+    padding: 0.5rem !important;
+  }
+
+  /* 图表内部容器间距调整 */
+  .print-chart-card .space-y-6 {
+    gap: 0.5rem !important;
+  }
+
+  .print-chart-card .space-y-6 > div {
+    margin-bottom: 0.5rem !important;
+    padding: 0.5rem !important;
+  }
+
+  /* Tailwind print: 变体支持 */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  /* 打印时隐藏屏幕专用元素 */
+  .screen-only {
+    display: none !important;
   }
 }

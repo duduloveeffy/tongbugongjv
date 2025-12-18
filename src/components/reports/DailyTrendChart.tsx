@@ -81,11 +81,11 @@ export function DailyTrendChart({
   });
 
   return (
-    <Card className={styles.border}>
+    <Card className={`${styles.border} print-chart-card`}>
       <CardHeader className={compact ? 'pb-2' : ''}>
         <div className="flex items-center justify-between">
           <CardTitle className={`text-lg ${styles.titleColor}`}>{title}</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 no-print">
             <Button
               size="sm"
               variant={showComparison ? 'default' : 'outline'}

@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, StickyNote } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { startOfWeek, endOfWeek, format, addWeeks, subWeeks, isFuture, startOfDay } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -82,13 +82,44 @@ function getDefaultWeek(): WeekValue {
   };
 }
 
+// 备注数据类型
+interface WeekNotesMap {
+  [key: string]: { note: string; updatedAt: string };
+}
+
 export function WeekPicker({ value, onChange, className }: WeekPickerProps) {
   const [open, setOpen] = useState(false);
+  const [weekNotes, setWeekNotes] = useState<WeekNotesMap>({});
   const defaultWeek = getDefaultWeek();
 
   const selectedValue = value || defaultWeek;
   const selectedWeekStart = getWeekStartDate(selectedValue.year, selectedValue.week);
   const selectedWeekEnd = endOfWeek(selectedWeekStart, { weekStartsOn: 1 });
+
+  // 当 Popover 打开时，批量获取最近 8 周的备注
+  useEffect(() => {
+    if (open) {
+      const fetchNotes = async () => {
+        const weeks = Array.from({ length: 8 }, (_, i) => {
+          const targetDate = subWeeks(new Date(), i + 1);
+          const weekStart = startOfWeek(targetDate, { weekStartsOn: 1 });
+          return `${getISOWeekYear(weekStart)}-${getISOWeek(weekStart)}`;
+        });
+
+        try {
+          const response = await fetch(`/api/week-notes?weeks=${weeks.join(',')}`);
+          const result = await response.json();
+          if (result.success) {
+            setWeekNotes(result.data || {});
+          }
+        } catch (error) {
+          console.error('Failed to fetch week notes:', error);
+        }
+      };
+
+      fetchNotes();
+    }
+  }, [open]);
 
   // 切换到上一周
   const handlePrevWeek = () => {
@@ -147,6 +178,12 @@ export function WeekPicker({ value, onChange, className }: WeekPickerProps) {
     const weekOfMonth = getWeekOfMonth(selectedWeekStart);
     const shortYear = selectedValue.year.toString().slice(-2);
     return `${shortYear}年${month}月第${weekOfMonth}周 (${format(selectedWeekStart, 'MM/dd', { locale: zhCN })} - ${format(selectedWeekEnd, 'MM/dd', { locale: zhCN })})`;
+  };
+
+  // 检查某周是否有备注
+  const hasNote = (year: number, week: number): string | null => {
+    const key = `${year}-${week}`;
+    return weekNotes[key]?.note || null;
   };
 
   return (
@@ -210,7 +247,7 @@ export function WeekPicker({ value, onChange, className }: WeekPickerProps) {
 
             <div className="border-t pt-3">
               <div className="text-sm font-medium text-muted-foreground mb-2">最近8周</div>
-              <div className="grid grid-cols-1 gap-1 max-h-[200px] overflow-y-auto">
+              <div className="grid grid-cols-1 gap-1 max-h-[280px] overflow-y-auto">
                 {Array.from({ length: 8 }, (_, i) => i + 1).map((weeksAgo) => {
                   const targetDate = subWeeks(new Date(), weeksAgo);
                   const weekStart = startOfWeek(targetDate, { weekStartsOn: 1 });
@@ -221,6 +258,7 @@ export function WeekPicker({ value, onChange, className }: WeekPickerProps) {
                   const month = weekStart.getMonth() + 1;
                   const weekOfMonth = getWeekOfMonth(weekStart);
                   const shortYear = weekYear.toString().slice(-2);
+                  const noteContent = hasNote(weekYear, weekNum);
 
                   return (
                     <Button
@@ -228,12 +266,27 @@ export function WeekPicker({ value, onChange, className }: WeekPickerProps) {
                       variant={isSelected ? 'default' : 'ghost'}
                       size="sm"
                       onClick={() => handleQuickSelect(weeksAgo)}
-                      className="w-full justify-start text-left"
+                      className="w-full justify-start text-left h-auto py-2"
                     >
-                      <span className="font-medium mr-2">{shortYear}年{month}月第{weekOfMonth}周</span>
-                      <span className="text-muted-foreground">
-                        {format(weekStart, 'MM/dd')} - {format(weekEnd, 'MM/dd')}
-                      </span>
+                      <div className="flex flex-col items-start w-full">
+                        <div className="flex items-center w-full">
+                          <span className="font-medium mr-2">{shortYear}年{month}月第{weekOfMonth}周</span>
+                          <span className={isSelected ? 'text-primary-foreground/70' : 'text-muted-foreground'}>
+                            {format(weekStart, 'MM/dd')} - {format(weekEnd, 'MM/dd')}
+                          </span>
+                          {noteContent && (
+                            <StickyNote className="h-3.5 w-3.5 ml-auto text-amber-500 flex-shrink-0" />
+                          )}
+                        </div>
+                        {noteContent && (
+                          <div className={cn(
+                            'text-xs mt-1 truncate max-w-[280px]',
+                            isSelected ? 'text-primary-foreground/70' : 'text-amber-600'
+                          )}>
+                            {noteContent}
+                          </div>
+                        )}
+                      </div>
                     </Button>
                   );
                 })}
