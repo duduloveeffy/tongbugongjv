@@ -110,7 +110,7 @@ export function SalesDetectionDialog({
     }
 
     const config: SalesDetectionConfig = {
-      dataSource: 'woocommerce',
+      dataSource: 'supabase',
       siteIds: selectAll ? [] : selectedSiteIds, // Empty array means all sites
       statuses: orderStatuses,
       daysBack,

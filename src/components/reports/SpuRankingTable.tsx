@@ -25,19 +25,30 @@ interface SpuStats {
   revenueGrowth: number;
 }
 
+type BrandVariant = 'default' | 'vapsolo' | 'spacexvape' | 'other';
+
 interface SpuRankingTableProps {
   data: SpuStats[];
   title?: string;
   showTopN?: number;
+  variant?: BrandVariant;
 }
 
 type SortField = 'orders' | 'quantity' | 'revenue';
 type SortOrder = 'asc' | 'desc';
 
-export function SpuRankingTable({ data, title = 'SPU 排行', showTopN }: SpuRankingTableProps) {
+const variantStyles: Record<BrandVariant, { header: string; border: string; titleColor: string }> = {
+  default: { header: 'bg-gray-100', border: '', titleColor: '' },
+  vapsolo: { header: 'bg-blue-50', border: 'border-l-4 border-l-blue-500', titleColor: 'text-blue-700' },
+  spacexvape: { header: 'bg-green-50', border: 'border-l-4 border-l-green-500', titleColor: 'text-green-700' },
+  other: { header: 'bg-amber-50', border: 'border-l-4 border-l-amber-500', titleColor: 'text-amber-700' },
+};
+
+export function SpuRankingTable({ data, title = 'SPU 排行', showTopN, variant = 'default' }: SpuRankingTableProps) {
   const [sortField, setSortField] = useState<SortField>('revenue');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [showAll, setShowAll] = useState(false);
+  const styles = variantStyles[variant];
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('de-DE', {
@@ -121,10 +132,10 @@ export function SpuRankingTable({ data, title = 'SPU 排行', showTopN }: SpuRan
   };
 
   return (
-    <Card>
+    <Card className={styles.border}>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{title}</CardTitle>
+          <CardTitle className={`text-lg ${styles.titleColor}`}>{title}</CardTitle>
           {hasMore && (
             <button
               onClick={() => setShowAll(!showAll)}
@@ -139,7 +150,7 @@ export function SpuRankingTable({ data, title = 'SPU 排行', showTopN }: SpuRan
         <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
           <Table>
             <TableHeader>
-              <TableRow className="bg-gray-100">
+              <TableRow className={styles.header}>
                 <TableHead className="font-semibold w-8 text-center">#</TableHead>
                 <TableHead className="font-semibold text-center">SPU</TableHead>
                 <SortableHeader field="orders" label="订单数" />

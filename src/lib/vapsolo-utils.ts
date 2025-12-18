@@ -31,6 +31,38 @@ export const ALL_VAPSOLO_SITES = [
 
 export type VapsoloSiteType = 'retail' | 'wholesale';
 
+// ========== 品牌分类 ==========
+
+// Vapsolo 品牌站点（包含零售和批发）
+export const BRAND_VAPSOLO_SITES = [
+  'vapsolowholes',
+  'vapsolo-glo',
+  'vapsolo-es',
+  'vapsolo-fr',
+  'vapsolo-wholesale',
+  'vapsolo-de',
+  'vapsolo-us',
+  'vapsolo-uk',
+  'vapsolo-co',
+  'vapsolo-co-wholesale',
+] as const;
+
+// Spacexvape 品牌站点
+export const BRAND_SPACEXVAPE_SITES = [
+  'spacexvape.com',
+  'de.spacexvape',
+] as const;
+
+// 其他集合站点
+export const BRAND_OTHER_SITES = [
+  'jnr-fr',
+  'fumot-de',
+  'vozol-co',
+  'spacexvape.nl',
+] as const;
+
+export type BrandType = 'vapsolo' | 'spacexvape' | 'other' | null;
+
 /**
  * 判断是否为 Vapsolo 站点
  */
@@ -168,4 +200,70 @@ export function filterRetailOrders(orders: any[]): any[] {
  */
 export function filterWholesaleOrders(orders: any[]): any[] {
   return orders.filter(order => getVapsoloSiteType(order.site_name) === 'wholesale');
+}
+
+// ========== 品牌分类函数 ==========
+
+/**
+ * 获取站点所属品牌
+ * @returns 'vapsolo' | 'spacexvape' | 'other' | null
+ */
+export function getSiteBrand(siteName: string): BrandType {
+  if (!siteName) return null;
+
+  const normalizedName = siteName.toLowerCase().trim();
+
+  // 检查是否为 Vapsolo 品牌
+  if (BRAND_VAPSOLO_SITES.some(site => normalizedName === site || normalizedName.includes(site))) {
+    return 'vapsolo';
+  }
+
+  // 检查是否为 Spacexvape 品牌
+  if (BRAND_SPACEXVAPE_SITES.some(site => normalizedName === site || normalizedName.includes(site))) {
+    return 'spacexvape';
+  }
+
+  // 检查是否为其他集合站点
+  if (BRAND_OTHER_SITES.some(site => normalizedName === site || normalizedName.includes(site))) {
+    return 'other';
+  }
+
+  return null;
+}
+
+/**
+ * 过滤出 Vapsolo 品牌订单
+ */
+export function filterVapsoloBrandOrders(orders: any[]): any[] {
+  return orders.filter(order => getSiteBrand(order.site_name) === 'vapsolo');
+}
+
+/**
+ * 过滤出 Spacexvape 品牌订单
+ */
+export function filterSpacexvapeBrandOrders(orders: any[]): any[] {
+  return orders.filter(order => getSiteBrand(order.site_name) === 'spacexvape');
+}
+
+/**
+ * 过滤出其他集合站点订单
+ */
+export function filterOtherBrandOrders(orders: any[]): any[] {
+  return orders.filter(order => getSiteBrand(order.site_name) === 'other');
+}
+
+/**
+ * 获取品牌显示名称
+ */
+export function getBrandDisplayName(brand: BrandType): string {
+  switch (brand) {
+    case 'vapsolo':
+      return 'Vapsolo';
+    case 'spacexvape':
+      return '集合站1';
+    case 'other':
+      return '集合站2';
+    default:
+      return '未知';
+  }
 }

@@ -21,9 +21,11 @@ interface OverviewStatsProps {
     quantity: number;
     revenue: number;
   };
+  /** 对比周期标签，默认"上月" */
+  periodLabel?: string;
 }
 
-export function OverviewStats({ title, stats, previousStats, growth }: OverviewStatsProps) {
+export function OverviewStats({ title, stats, previousStats, growth, periodLabel = '上月' }: OverviewStatsProps) {
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('de-DE', {
       style: 'currency',
@@ -77,7 +79,7 @@ export function OverviewStats({ title, stats, previousStats, growth }: OverviewS
             <div className="flex items-center gap-2">
               {getGrowthBadge(growth.orders, formatGrowth(growth.orders))}
               <span className="text-xs text-muted-foreground">
-                上月: {formatNumber(previousStats.orders)}
+                {periodLabel}: {formatNumber(previousStats.orders)}
               </span>
             </div>
           </div>
@@ -89,7 +91,7 @@ export function OverviewStats({ title, stats, previousStats, growth }: OverviewS
             <div className="flex items-center gap-2">
               {getGrowthBadge(growth.quantity, formatGrowth(growth.quantity))}
               <span className="text-xs text-muted-foreground">
-                上月: {formatNumber(previousStats.quantity)}
+                {periodLabel}: {formatNumber(previousStats.quantity)}
               </span>
             </div>
           </div>
@@ -101,7 +103,7 @@ export function OverviewStats({ title, stats, previousStats, growth }: OverviewS
             <div className="flex items-center gap-2">
               {getGrowthBadge(growth.revenue, formatGrowth(growth.revenue))}
               <span className="text-xs text-muted-foreground">
-                上月: {formatCurrency(previousStats.revenue)}
+                {periodLabel}: {formatCurrency(previousStats.revenue)}
               </span>
             </div>
           </div>
