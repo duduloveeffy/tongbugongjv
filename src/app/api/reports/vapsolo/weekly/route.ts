@@ -22,6 +22,7 @@ interface RequestParams {
   week: number; // ISO week number (1-53)
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  weekRangeMode?: 'full' | 'monthly'; // 完整周 或 月内周
 }
 
 // 周报数据结构
@@ -41,6 +42,8 @@ interface WeeklyReportData {
   };
   brandComparison: {
     vapsolo: TypeComparisonData;
+    vapsoloRetail: TypeComparisonData;  // Vapsolo 零售站
+    vapsoloWholesale: TypeComparisonData;  // Vapsolo 批发站
     spacexvape: TypeComparisonData;
     other: TypeComparisonData;
   };
@@ -48,6 +51,8 @@ interface WeeklyReportData {
   retail: DetailedStats;
   wholesale: DetailedStats;
   vapsoloBrand: DetailedStats;
+  vapsoloRetail: DetailedStats;  // Vapsolo 零售站详细数据
+  vapsoloWholesale: DetailedStats;  // Vapsolo 批发站详细数据
   spacexvapeBrand: DetailedStats;
   otherBrand: DetailedStats;
 }
@@ -155,7 +160,7 @@ const spuConfig: SpuExtractionConfig = {
 export async function POST(request: NextRequest) {
   try {
     const body: RequestParams = await request.json();
-    const { year, week, startDate, endDate } = body;
+    const { year, week, startDate, endDate, weekRangeMode = 'full' } = body;
 
     // 参数验证
     if (!year || !week || week < 1 || week > 53 || !startDate || !endDate) {
@@ -173,19 +178,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 根据 weekRangeMode 计算实际的日期范围
+    let effectiveStartDate = startDate;
+    let effectiveEndDate = endDate;
+
+    if (weekRangeMode === 'monthly') {
+      // 月内周模式：将周范围截断到月边界内
+      // 使用周起始日期所在的月份作为参考月
+      const weekStartDateObj = new Date(startDate);
+      const refMonth = weekStartDateObj.getMonth();
+      const refYear = weekStartDateObj.getFullYear();
+
+      // 计算月起始和结束
+      const monthStart = new Date(refYear, refMonth, 1);
+      const monthEnd = new Date(refYear, refMonth + 1, 0); // 月末
+
+      const monthStartStr = monthStart.toISOString().split('T')[0] || startDate;
+      const monthEndStr = monthEnd.toISOString().split('T')[0] || endDate;
+
+      // 截断到月边界内
+      if (effectiveStartDate < monthStartStr) {
+        effectiveStartDate = monthStartStr;
+      }
+      if (effectiveEndDate > monthEndStr) {
+        effectiveEndDate = monthEndStr;
+      }
+
+      console.log('[Vapsolo Weekly Report] Monthly mode - truncated dates:', {
+        original: { startDate, endDate },
+        effective: { effectiveStartDate, effectiveEndDate },
+        monthBoundary: { monthStartStr, monthEndStr },
+      });
+    }
+
     // 计算当周和上周的日期范围
     const currentPeriod = {
       year,
       week,
-      start: `${startDate}T00:00:00.000Z`,
-      end: `${endDate}T23:59:59.999Z`,
+      start: `${effectiveStartDate}T00:00:00.000Z`,
+      end: `${effectiveEndDate}T23:59:59.999Z`,
     };
 
-    const previousPeriod = getPreviousWeekRange(startDate);
+    const previousPeriod = getPreviousWeekRange(startDate, weekRangeMode);
 
     console.log('[Vapsolo Weekly Report] Querying:', {
       current: currentPeriod,
       previous: previousPeriod,
+      weekRangeMode,
     });
 
     // 查询当周和上周的订单数据
@@ -232,6 +271,18 @@ export async function POST(request: NextRequest) {
     // 使用 processOrdersWithComparison 获取包含对比数据的详细统计
     const vapsoloBrandCurrent = processOrdersWithComparison(vapsoloBrandCurrentOrders, vapsoloBrandPreviousOrders, 'all');
     const vapsoloBrandPrevious = processOrders(vapsoloBrandPreviousOrders, 'all');
+
+    // Vapsolo 零售站和批发站子维度
+    const vapsoloRetailCurrentOrders = filterRetailOrders(vapsoloBrandCurrentOrders);
+    const vapsoloRetailPreviousOrders = filterRetailOrders(vapsoloBrandPreviousOrders);
+    const vapsoloWholesaleCurrentOrders = filterWholesaleOrders(vapsoloBrandCurrentOrders);
+    const vapsoloWholesalePreviousOrders = filterWholesaleOrders(vapsoloBrandPreviousOrders);
+
+    const vapsoloRetailCurrent = processOrdersWithComparison(vapsoloRetailCurrentOrders, vapsoloRetailPreviousOrders, 'retail');
+    const vapsoloRetailPrevious = processOrders(vapsoloRetailPreviousOrders, 'retail');
+    const vapsoloWholesaleCurrent = processOrdersWithComparison(vapsoloWholesaleCurrentOrders, vapsoloWholesalePreviousOrders, 'wholesale');
+    const vapsoloWholesalePrevious = processOrders(vapsoloWholesalePreviousOrders, 'wholesale');
+
     const spacexvapeBrandCurrent = processOrdersWithComparison(spacexvapeBrandCurrentOrders, spacexvapeBrandPreviousOrders, 'all');
     const spacexvapeBrandPrevious = processOrders(spacexvapeBrandPreviousOrders, 'all');
     const otherBrandCurrent = processOrdersWithComparison(otherBrandCurrentOrders, otherBrandPreviousOrders, 'all');
@@ -315,6 +366,40 @@ export async function POST(request: NextRequest) {
           quantity: calculateGrowth(vapsoloBrandCurrent.summary, vapsoloBrandPrevious.summary).quantity,
         },
       },
+      vapsoloRetail: {
+        current: {
+          orders: vapsoloRetailCurrent.summary.totalOrders,
+          revenue: vapsoloRetailCurrent.summary.totalRevenue,
+          quantity: vapsoloRetailCurrent.summary.totalQuantity,
+        },
+        previous: {
+          orders: vapsoloRetailPrevious.summary.totalOrders,
+          revenue: vapsoloRetailPrevious.summary.totalRevenue,
+          quantity: vapsoloRetailPrevious.summary.totalQuantity,
+        },
+        growth: {
+          orders: calculateGrowth(vapsoloRetailCurrent.summary, vapsoloRetailPrevious.summary).orders,
+          revenue: calculateGrowth(vapsoloRetailCurrent.summary, vapsoloRetailPrevious.summary).revenue,
+          quantity: calculateGrowth(vapsoloRetailCurrent.summary, vapsoloRetailPrevious.summary).quantity,
+        },
+      },
+      vapsoloWholesale: {
+        current: {
+          orders: vapsoloWholesaleCurrent.summary.totalOrders,
+          revenue: vapsoloWholesaleCurrent.summary.totalRevenue,
+          quantity: vapsoloWholesaleCurrent.summary.totalQuantity,
+        },
+        previous: {
+          orders: vapsoloWholesalePrevious.summary.totalOrders,
+          revenue: vapsoloWholesalePrevious.summary.totalRevenue,
+          quantity: vapsoloWholesalePrevious.summary.totalQuantity,
+        },
+        growth: {
+          orders: calculateGrowth(vapsoloWholesaleCurrent.summary, vapsoloWholesalePrevious.summary).orders,
+          revenue: calculateGrowth(vapsoloWholesaleCurrent.summary, vapsoloWholesalePrevious.summary).revenue,
+          quantity: calculateGrowth(vapsoloWholesaleCurrent.summary, vapsoloWholesalePrevious.summary).quantity,
+        },
+      },
       spacexvape: {
         current: {
           orders: spacexvapeBrandCurrent.summary.totalOrders,
@@ -376,6 +461,14 @@ export async function POST(request: NextRequest) {
         ...vapsoloBrandCurrent.details,
         previousDailyTrends: vapsoloBrandPrevious.details.dailyTrends,
       },
+      vapsoloRetail: {
+        ...vapsoloRetailCurrent.details,
+        previousDailyTrends: vapsoloRetailPrevious.details.dailyTrends,
+      },
+      vapsoloWholesale: {
+        ...vapsoloWholesaleCurrent.details,
+        previousDailyTrends: vapsoloWholesalePrevious.details.dailyTrends,
+      },
       spacexvapeBrand: {
         ...spacexvapeBrandCurrent.details,
         previousDailyTrends: spacexvapeBrandPrevious.details.dailyTrends,
@@ -401,7 +494,7 @@ export async function POST(request: NextRequest) {
 }
 
 // 获取上周日期范围
-function getPreviousWeekRange(currentStartDate: string) {
+function getPreviousWeekRange(currentStartDate: string, weekRangeMode: 'full' | 'monthly' = 'full') {
   const currentStart = new Date(currentStartDate);
   const prevWeekStart = new Date(currentStart);
   prevWeekStart.setDate(currentStart.getDate() - 7);
@@ -428,13 +521,35 @@ function getPreviousWeekRange(currentStartDate: string) {
     return date.toISOString().split('T')[0] || '';
   };
 
+  let effectiveStartDate = formatDate(prevWeekStart);
+  let effectiveEndDate = formatDate(prevWeekEnd);
+
+  // 月内周模式：将上周的日期范围也截断到其所在月的边界内
+  if (weekRangeMode === 'monthly') {
+    const refMonth = prevWeekStart.getMonth();
+    const refYear = prevWeekStart.getFullYear();
+
+    const monthStart = new Date(refYear, refMonth, 1);
+    const monthEnd = new Date(refYear, refMonth + 1, 0);
+
+    const monthStartStr = formatDate(monthStart);
+    const monthEndStr = formatDate(monthEnd);
+
+    if (effectiveStartDate < monthStartStr) {
+      effectiveStartDate = monthStartStr;
+    }
+    if (effectiveEndDate > monthEndStr) {
+      effectiveEndDate = monthEndStr;
+    }
+  }
+
   return {
     year: getISOWeekYear(prevWeekStart),
     week: getISOWeek(prevWeekStart),
-    startDate: formatDate(prevWeekStart),
-    endDate: formatDate(prevWeekEnd),
-    start: `${formatDate(prevWeekStart)}T00:00:00.000Z`,
-    end: `${formatDate(prevWeekEnd)}T23:59:59.999Z`,
+    startDate: effectiveStartDate,
+    endDate: effectiveEndDate,
+    start: `${effectiveStartDate}T00:00:00.000Z`,
+    end: `${effectiveEndDate}T23:59:59.999Z`,
   };
 }
 
