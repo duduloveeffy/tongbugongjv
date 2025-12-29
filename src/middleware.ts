@@ -10,6 +10,11 @@ const PUBLIC_ROUTES = [
   '/api/health',
   // Temporarily allow sites API to work without auth while we fix the session issue
   '/api/sites',
+  // Auto sync API (called by cron/scheduler, no user session)
+  '/api/sync/auto',
+  '/api/sync/local-cron',
+  // Stock update API (called by auto sync internally)
+  '/api/wc-update-stock',
 ];
 
 // Routes that are view-only (no sensitive data)

@@ -61,6 +61,11 @@ export function SiteManager() {
     url: '',
     apiKey: '',
     apiSecret: '',
+    // 站点级过滤配置
+    skuFilter: '',
+    excludeSkuPrefixes: '',
+    categoryFilters: '',
+    excludeWarehouses: '',
   });
 
   useEffect(() => {
@@ -80,6 +85,11 @@ export function SiteManager() {
       api_secret: formData.apiSecret,
       enabled: true,
       last_sync_at: null,
+      // 站点级过滤配置（新站点默认为空）
+      sku_filter: null,
+      exclude_sku_prefixes: null,
+      category_filters: null,
+      exclude_warehouses: null,
     });
 
     if (site) {
@@ -91,11 +101,22 @@ export function SiteManager() {
   const handleEdit = async () => {
     if (!selectedSite) return;
 
+    // 将 categoryFilters 字符串转换为数组
+    const categoryFiltersArray = formData.categoryFilters
+      .split(/[,，\n]/)
+      .map(s => s.trim())
+      .filter(s => s);
+
     const success = await updateSite(selectedSite.id, {
       name: formData.name,
       url: formData.url,
       api_key: formData.apiKey,
       api_secret: formData.apiSecret,
+      // 站点级过滤配置
+      sku_filter: formData.skuFilter || null,
+      exclude_sku_prefixes: formData.excludeSkuPrefixes || null,
+      category_filters: categoryFiltersArray.length > 0 ? categoryFiltersArray : null,
+      exclude_warehouses: formData.excludeWarehouses || null,
     });
 
     if (success) {
@@ -147,6 +168,11 @@ export function SiteManager() {
       url: site.url,
       apiKey: site.api_key,
       apiSecret: site.api_secret,
+      // 站点级过滤配置
+      skuFilter: site.sku_filter || '',
+      excludeSkuPrefixes: site.exclude_sku_prefixes || '',
+      categoryFilters: (site.category_filters || []).join(', '),
+      excludeWarehouses: site.exclude_warehouses || '',
     });
     setIsEditDialogOpen(true);
   };
@@ -157,6 +183,10 @@ export function SiteManager() {
       url: '',
       apiKey: '',
       apiSecret: '',
+      skuFilter: '',
+      excludeSkuPrefixes: '',
+      categoryFilters: '',
+      excludeWarehouses: '',
     });
     setShowSecrets(false);
   };
@@ -670,7 +700,7 @@ export function SiteManager() {
 
       {/* Edit Site Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>编辑站点配置</DialogTitle>
             <DialogDescription>
@@ -732,6 +762,57 @@ export function SiteManager() {
                 >
                   {showSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
+              </div>
+            </div>
+
+            {/* 站点级 SKU 过滤配置 */}
+            <div className="border-t pt-4 mt-4">
+              <h4 className="text-sm font-medium mb-3">库存同步过滤配置（可选）</h4>
+
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-skuFilter">SKU 筛选（仅同步包含这些关键词的 SKU）</Label>
+                  <Input
+                    id="edit-skuFilter"
+                    placeholder="多个用逗号分隔，如：ABC,DEF,GHI"
+                    value={formData.skuFilter}
+                    onChange={(e) => setFormData({ ...formData, skuFilter: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">留空则不筛选，同步所有 SKU</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-excludeSkuPrefixes">排除 SKU 前缀</Label>
+                  <Input
+                    id="edit-excludeSkuPrefixes"
+                    placeholder="多个用逗号分隔，如：TEST,SAMPLE"
+                    value={formData.excludeSkuPrefixes}
+                    onChange={(e) => setFormData({ ...formData, excludeSkuPrefixes: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">以这些前缀开头的 SKU 将被排除</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-categoryFilters">品类筛选</Label>
+                  <Input
+                    id="edit-categoryFilters"
+                    placeholder="多个用逗号分隔，如：电子烟,烟油"
+                    value={formData.categoryFilters}
+                    onChange={(e) => setFormData({ ...formData, categoryFilters: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">仅同步属于这些品类的 SKU</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-excludeWarehouses">排除仓库</Label>
+                  <Input
+                    id="edit-excludeWarehouses"
+                    placeholder="多个用逗号分隔，如：临时仓,退货仓"
+                    value={formData.excludeWarehouses}
+                    onChange={(e) => setFormData({ ...formData, excludeWarehouses: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">这些仓库的库存将不计入</p>
+                </div>
               </div>
             </div>
           </div>

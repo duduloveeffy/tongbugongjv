@@ -1,0 +1,40 @@
+{
+  "id": "local-default",
+  "name": "default",
+  "enabled": true,
+  "site_ids": [
+    "4fcb9c7d-e546-4ff7-aa10-894b5bd81b42",
+    "7f73b272-2537-43c7-914d-4564116b76f9"
+  ],
+  "filters": {
+    "isMergedMode": true,
+    "hideZeroStock": false,
+    "hideNormalStatus": false,
+    "showNeedSync": false,
+    "categoryFilter": "全部",
+    "categoryFilters": [],
+    "skuFilter": "",
+    "excludeSkuPrefixes": "JNR,VS5-,VS2-,HO,AK,YP-,RMTD,24PM,KPV,MA0,UK-,US-,VOL,FX,FL,ADY,VI,TRP3,TRP0,QU0,kp2,kp5,zhixiang,TW2-24-SI-MPW,TW2-11-LL-WI",
+    "excludeWarehouses": "深圳,德五，美一仓，独立站备货仓"
+  },
+  "sync_to_instock": true,
+  "sync_to_outofstock": true,
+  "wechat_webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=87800361-3f6e-455a-a014-a0aff19ef7cb",
+  "notify_on_success": true,
+  "notify_on_failure": true,
+  "notify_on_no_changes": false,
+  "cron_expression": "0 * * * *",
+  "last_run_at": "2025-12-25T11:23:06.444Z",
+  "last_run_status": "success",
+  "last_run_summary": {
+    "total_sites": 2,
+    "total_checked": 392,
+    "total_synced_to_instock": 2,
+    "total_synced_to_outofstock": 0,
+    "total_failed": 0,
+    "total_skipped": 390,
+    "duration_ms": 67928
+  },
+  "created_at": "2025-12-25T08:43:59.057Z",
+  "updated_at": "2025-12-25T11:23:06.444Z"
+}

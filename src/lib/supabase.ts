@@ -16,6 +16,11 @@ export interface Database {
           last_sync_at: string | null;
           created_at: string;
           updated_at: string;
+          // 站点级过滤配置
+          sku_filter: string | null;
+          exclude_sku_prefixes: string | null;
+          category_filters: string[] | null;
+          exclude_warehouses: string | null;
         };
         Insert: Omit<Database['public']['Tables']['wc_sites']['Row'], 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Database['public']['Tables']['wc_sites']['Insert']>;

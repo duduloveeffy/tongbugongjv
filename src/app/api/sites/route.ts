@@ -1,20 +1,45 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
 
+// 站点筛选配置接口（从 site_filters 表读取）
+interface SiteFilterInfo {
+  sku_filter: string | null;
+  exclude_sku_prefixes: string | null;
+  category_filters: string[] | null;
+  exclude_warehouses: string | null;
+}
+
+// 站点数据接口
+interface Site {
+  id: string;
+  name: string;
+  url: string;
+  api_key: string;
+  api_secret: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string | null;
+  last_sync_at: string | null;
+  // 筛选配置（从 site_filters 表 JOIN 获取）
+  sku_filter: string | null;
+  exclude_sku_prefixes: string | null;
+  category_filters: string[] | null;
+  exclude_warehouses: string | null;
+}
+
 // GET: Fetch all sites
 export async function GET() {
   try {
     const supabase = getSupabaseClient();
-    
+
     if (!supabase) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Supabase not configured',
-        sites: [] 
+        sites: []
       }, { status: 200 });
     }
 
-    // Include API keys for authenticated users to enable product detection
-    // TODO: In production, consider using a proxy approach instead
+    // 1. 获取所有站点
     const { data: sites, error } = await supabase
       .from('wc_sites')
       .select('id, name, url, api_key, api_secret, enabled, created_at, updated_at, last_sync_at')
@@ -22,15 +47,59 @@ export async function GET() {
 
     if (error) {
       console.error('Failed to fetch sites:', error);
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Failed to fetch sites',
-        details: error.message 
+        details: error.message
       }, { status: 500 });
     }
 
-    return NextResponse.json({ 
+    // 2. 获取所有站点的过滤配置
+    const { data: filters, error: filterError } = await supabase
+      .from('site_filters')
+      .select('site_id, sku_filter, exclude_sku_prefixes, category_filters, exclude_warehouses');
+
+    if (filterError) {
+      console.error('Failed to fetch site filters:', filterError);
+      // 不阻塞，继续返回站点数据（过滤配置为空）
+    }
+
+    // 3. 构建 site_id -> filter 的映射
+    const filterMap = new Map<string, SiteFilterInfo>();
+    if (filters) {
+      for (const f of filters) {
+        filterMap.set(f.site_id, {
+          sku_filter: f.sku_filter,
+          exclude_sku_prefixes: f.exclude_sku_prefixes,
+          category_filters: f.category_filters,
+          exclude_warehouses: f.exclude_warehouses,
+        });
+      }
+    }
+
+    // 4. 合并站点数据和过滤配置
+    const processedSites: Site[] = (sites || []).map(s => {
+      const filter = filterMap.get(s.id);
+      return {
+        id: s.id,
+        name: s.name,
+        url: s.url,
+        api_key: s.api_key,
+        api_secret: s.api_secret,
+        enabled: s.enabled,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+        last_sync_at: s.last_sync_at,
+        // 扁平化筛选配置字段（保持前端兼容性）
+        sku_filter: filter?.sku_filter ?? null,
+        exclude_sku_prefixes: filter?.exclude_sku_prefixes ?? null,
+        category_filters: filter?.category_filters ?? null,
+        exclude_warehouses: filter?.exclude_warehouses ?? null,
+      };
+    });
+
+    return NextResponse.json({
       success: true,
-      sites: sites || [] 
+      sites: processedSites
     });
 
   } catch (error: any) {

@@ -26,7 +26,8 @@ import {
   Users,
   LogOut,
   Shield,
-  Settings
+  Settings,
+  Timer
 } from 'lucide-react';
 
 const navigationItems = [
@@ -65,6 +66,12 @@ const navigationItems = [
     href: '/webhook',
     icon: Webhook,
     description: 'Webhook管理'
+  },
+  {
+    name: '自动同步',
+    href: '/auto-sync',
+    icon: Timer,
+    description: '定时自动同步配置'
   }
 ];
 
