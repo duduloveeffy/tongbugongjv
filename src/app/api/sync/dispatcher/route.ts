@@ -271,12 +271,18 @@ async function triggerSiteSyncInternal(
   console.log(`[Dispatcher ${logId}] 触发站点 ${siteIndex} 同步`);
 
   try {
-    // 内部调用站点同步 API
-    const baseUrl = process.env.NODE_ENV === 'development'
-      ? (process.env.DEV_BASE_URL || 'http://localhost:3000')
-      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+    // 获取当前部署的URL
+    // Vercel 自动设置 VERCEL_URL 环境变量
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_APP_URL
+      ? process.env.NEXT_PUBLIC_APP_URL
+      : 'http://localhost:3000';
 
-    const response = await fetch(`${baseUrl}/api/sync/site`, {
+    const apiUrl = `${baseUrl}/api/sync/site`;
+    console.log(`[Dispatcher ${logId}] 调用 API: ${apiUrl}`);
+
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ batch_id: batchId, site_index: siteIndex }),
@@ -284,9 +290,11 @@ async function triggerSiteSyncInternal(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error(`[Dispatcher ${logId}] 站点同步API返回错误: ${response.status}`, errorData);
       return { success: false, error: errorData.error || `HTTP ${response.status}` };
     }
 
+    console.log(`[Dispatcher ${logId}] 站点 ${siteIndex} 同步触发成功`);
     return { success: true };
 
   } catch (error) {
