@@ -305,6 +305,7 @@ export default function AutoSyncPage() {
 
     setIsSaving(true);
     try {
+      // 1. 保存全局配置
       const response = await fetch('/api/sync/auto-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -312,15 +313,38 @@ export default function AutoSyncPage() {
       });
 
       const data = await response.json();
-      if (data.success) {
-        setConfig(data.config);
-        toast.success('配置已保存');
-      } else {
+      if (!data.success) {
         toast.error(data.error || '保存失败');
+        return;
       }
+
+      // 2. 保存各站点的筛选配置
+      const siteFilterPromises = Object.entries(siteFilters).map(async ([siteId, filters]) => {
+        const filterResponse = await fetch('/api/sync/site-filters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            site_id: siteId,
+            sku_filter: filters.skuFilter || null,
+            exclude_sku_prefixes: filters.excludeSkuPrefixes || null,
+            category_filters: filters.categoryFilters ? filters.categoryFilters.split(',').map(s => s.trim()).filter(Boolean) : null,
+            exclude_warehouses: filters.excludeWarehouses || null,
+          }),
+        });
+
+        if (!filterResponse.ok) {
+          const errorData = await filterResponse.json();
+          throw new Error(`保存站点 ${siteId} 筛选配置失败: ${errorData.error}`);
+        }
+      });
+
+      await Promise.all(siteFilterPromises);
+
+      setConfig(data.config);
+      toast.success('配置已保存');
     } catch (error) {
       console.error('保存配置失败:', error);
-      toast.error('保存配置失败');
+      toast.error(error instanceof Error ? error.message : '保存配置失败');
     } finally {
       setIsSaving(false);
     }

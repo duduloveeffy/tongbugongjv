@@ -310,23 +310,29 @@ export async function POST(request: NextRequest) {
     const config = await getAutoSyncConfigAsync();
     const globalFilters = cache.filter_config as FilterConfig;
 
-    // 7. 使用全局筛选配置（忽略站点级配置）
+    // 7. 合并全局配置和站点特定筛选配置
+    // 全局配置：显示模式、库存状态等
+    // 站点配置：SKU筛选、分类筛选、仓库排除等
+    const siteSpecificFilters = site.site_filters;
     const siteFilters: FilterConfig = {
+      // 使用全局显示配置
       isMergedMode: globalFilters.isMergedMode,
       hideZeroStock: globalFilters.hideZeroStock,
       hideNormalStatus: globalFilters.hideNormalStatus,
       showNeedSync: globalFilters.showNeedSync,
       categoryFilter: globalFilters.categoryFilter,
-      skuFilter: globalFilters.skuFilter,
-      excludeSkuPrefixes: globalFilters.excludeSkuPrefixes,
-      categoryFilters: globalFilters.categoryFilters,
-      excludeWarehouses: globalFilters.excludeWarehouses,
+      // 使用站点特定的筛选配置（如果有）
+      skuFilter: siteSpecificFilters?.sku_filter || '',
+      excludeSkuPrefixes: siteSpecificFilters?.exclude_sku_prefixes || '',
+      categoryFilters: siteSpecificFilters?.category_filters || [],
+      excludeWarehouses: siteSpecificFilters?.exclude_warehouses || '',
     };
 
-    console.log(`[Site Sync ${logId}] 站点 ${site.name} 使用全局过滤配置:`, {
+    console.log(`[Site Sync ${logId}] 站点 ${site.name} 使用站点特定筛选配置:`, {
       skuFilter: siteFilters.skuFilter ? `"${siteFilters.skuFilter.substring(0, 50)}..."` : '(无)',
       excludeSkuPrefixes: siteFilters.excludeSkuPrefixes ? `"${siteFilters.excludeSkuPrefixes.substring(0, 50)}..."` : '(无)',
       categoryFilters: siteFilters.categoryFilters?.length || 0,
+      excludeWarehouses: siteFilters.excludeWarehouses ? `"${siteFilters.excludeWarehouses.substring(0, 50)}..."` : '(无)',
     });
 
     // 8. 过滤库存数据
