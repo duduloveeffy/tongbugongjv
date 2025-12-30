@@ -282,9 +282,20 @@ async function triggerSiteSyncInternal(
     const apiUrl = `${baseUrl}/api/sync/site`;
     console.log(`[Dispatcher ${logId}] 调用 API: ${apiUrl}`);
 
+    // 添加内部调用标识,跳过中间件认证
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-internal-call': 'dispatcher',
+    };
+
+    // 如果有 service role key,也传递过去
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      headers['x-service-key'] = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    }
+
     const response = await fetch(apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ batch_id: batchId, site_index: siteIndex }),
     });
 

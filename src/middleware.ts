@@ -38,6 +38,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Allow internal calls from dispatcher
+  const internalCall = request.headers.get('x-internal-call');
+  if (internalCall === 'dispatcher') {
+    console.log(`✅ [Internal Call] ${pathname} from dispatcher`);
+    return NextResponse.next();
+  }
+
   // Allow public routes
   if (PUBLIC_ROUTES.some(route => pathname.startsWith(route))) {
     return NextResponse.next();
