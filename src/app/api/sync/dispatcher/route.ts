@@ -272,11 +272,11 @@ async function triggerSiteSyncInternal(
 
   try {
     // 获取当前部署的URL
-    // Vercel 自动设置 VERCEL_URL 环境变量
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_APP_URL
+    // 优先使用生产域名,避免使用预览部署的临时域名
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
       ? process.env.NEXT_PUBLIC_APP_URL
+      : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
       : 'http://localhost:3000';
 
     const apiUrl = `${baseUrl}/api/sync/site`;
