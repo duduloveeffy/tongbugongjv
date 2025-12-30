@@ -310,23 +310,20 @@ export async function POST(request: NextRequest) {
     const config = await getAutoSyncConfigAsync();
     const globalFilters = cache.filter_config as FilterConfig;
 
-    // 7. 合并站点级筛选配置
-    const sf = site.site_filters;
+    // 7. 使用全局筛选配置（忽略站点级配置）
     const siteFilters: FilterConfig = {
       isMergedMode: globalFilters.isMergedMode,
       hideZeroStock: globalFilters.hideZeroStock,
       hideNormalStatus: globalFilters.hideNormalStatus,
       showNeedSync: globalFilters.showNeedSync,
       categoryFilter: globalFilters.categoryFilter,
-      skuFilter: sf?.sku_filter?.trim() || globalFilters.skuFilter,
-      excludeSkuPrefixes: sf?.exclude_sku_prefixes?.trim() || globalFilters.excludeSkuPrefixes,
-      categoryFilters: (sf?.category_filters && sf.category_filters.length > 0)
-        ? sf.category_filters
-        : globalFilters.categoryFilters,
-      excludeWarehouses: sf?.exclude_warehouses?.trim() || globalFilters.excludeWarehouses,
+      skuFilter: globalFilters.skuFilter,
+      excludeSkuPrefixes: globalFilters.excludeSkuPrefixes,
+      categoryFilters: globalFilters.categoryFilters,
+      excludeWarehouses: globalFilters.excludeWarehouses,
     };
 
-    console.log(`[Site Sync ${logId}] 站点 ${site.name} 过滤配置:`, {
+    console.log(`[Site Sync ${logId}] 站点 ${site.name} 使用全局过滤配置:`, {
       skuFilter: siteFilters.skuFilter ? `"${siteFilters.skuFilter.substring(0, 50)}..."` : '(无)',
       excludeSkuPrefixes: siteFilters.excludeSkuPrefixes ? `"${siteFilters.excludeSkuPrefixes.substring(0, 50)}..."` : '(无)',
       categoryFilters: siteFilters.categoryFilters?.length || 0,
