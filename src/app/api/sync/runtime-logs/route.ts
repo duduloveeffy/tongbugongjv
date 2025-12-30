@@ -11,7 +11,7 @@ import { runtimeLogger } from '@/lib/runtime-logger';
  */
 export async function GET(request: NextRequest) {
   const limit = parseInt(request.nextUrl.searchParams.get('limit') || '100');
-  const logs = runtimeLogger.getLogs(limit);
+  const logs = await runtimeLogger.getLogs(limit);
 
   return NextResponse.json({
     success: true,
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
  * 清空日志
  */
 export async function DELETE() {
-  const count = runtimeLogger.clear();
+  const count = await runtimeLogger.clear();
 
   return NextResponse.json({
     success: true,

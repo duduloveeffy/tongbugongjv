@@ -1,6 +1,6 @@
 /**
  * 运行时日志收集器
- * 在内存中缓存最近的服务器日志，供前端查询
+ * 简化版：只输出到 console，供 Vercel 日志查看
  */
 
 interface LogEntry {
@@ -12,29 +12,12 @@ interface LogEntry {
 }
 
 class RuntimeLogger {
-  private logs: LogEntry[] = [];
-  private readonly MAX_LOGS = 200;
-
   log(level: 'info' | 'warn' | 'error', source: string, message: string, data?: any) {
-    const entry: LogEntry = {
-      timestamp: new Date().toISOString(),
-      level,
-      source,
-      message,
-      data,
-    };
-
-    this.logs.unshift(entry);
-
-    // 保持最多 MAX_LOGS 条
-    if (this.logs.length > this.MAX_LOGS) {
-      this.logs = this.logs.slice(0, this.MAX_LOGS);
-    }
-
-    // 同时输出到 console
+    // 输出到 console（Vercel 会捕获这些日志）
     const logFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+    const timestamp = new Date().toISOString();
     const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-    logFn(`[${source}] ${message}${dataStr}`);
+    logFn(`[${timestamp}][${level.toUpperCase()}][${source}] ${message}${dataStr}`);
   }
 
   info(source: string, message: string, data?: any) {
@@ -49,14 +32,13 @@ class RuntimeLogger {
     this.log('error', source, message, data);
   }
 
-  getLogs(limit = 100): LogEntry[] {
-    return this.logs.slice(0, Math.min(limit, this.MAX_LOGS));
+  async getLogs(limit = 100): Promise<LogEntry[]> {
+    // 返回空数组，因为我们不存储日志
+    return [];
   }
 
-  clear() {
-    const count = this.logs.length;
-    this.logs = [];
-    return count;
+  async clear() {
+    return 0;
   }
 }
 

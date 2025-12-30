@@ -137,30 +137,11 @@ export default function AutoSyncPage() {
   const [siteResults, setSiteResults] = useState<SyncSiteResult[]>([]);
   const [isLoadingBatch, setIsLoadingBatch] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [serverLogs, setServerLogs] = useState<Array<{
-    timestamp: string;
-    level: string;
-    source: string;
-    message: string;
-  }>>([]);
 
   // 添加调试日志
   const addDebugLog = useCallback((message: string) => {
     const timestamp = new Date().toLocaleTimeString('zh-CN');
     setDebugLogs(prev => [`[${timestamp}] ${message}`, ...prev].slice(0, 50));
-  }, []);
-
-  // 加载服务器日志
-  const loadServerLogs = useCallback(async () => {
-    try {
-      const response = await fetch('/api/sync/runtime-logs?limit=100');
-      const data = await response.json();
-      if (data.success) {
-        setServerLogs(data.logs || []);
-      }
-    } catch (error) {
-      console.error('加载服务器日志失败:', error);
-    }
   }, []);
 
   // 加载当前批次状态
@@ -301,18 +282,6 @@ export default function AutoSyncPage() {
     };
     init();
   }, [loadConfig, loadSites, loadLogs, loadBatchStatus]);
-
-  // 定期刷新服务器日志（当有活跃批次时）
-  useEffect(() => {
-    if (!activeBatch || activeBatch.status === 'completed' || activeBatch.status === 'failed') {
-      return;
-    }
-    // 立即加载一次
-    loadServerLogs();
-    // 然后每 3 秒刷新一次
-    const interval = setInterval(loadServerLogs, 3000);
-    return () => clearInterval(interval);
-  }, [activeBatch, loadServerLogs]);
 
   // 定期刷新批次状态（当有活跃批次时）
   useEffect(() => {
@@ -636,52 +605,18 @@ export default function AutoSyncPage() {
               </div>
             )}
 
-            {/* 服务器日志 */}
+            {/* 查看 Vercel 日志提示 */}
             <div className="space-y-2 pt-4 border-t">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm">服务器日志 (实时)</Label>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={loadServerLogs}
-                    className="h-6 text-xs"
-                  >
-                    刷新
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={async () => {
-                      await fetch('/api/sync/runtime-logs', { method: 'DELETE' });
-                      setServerLogs([]);
-                    }}
-                    className="h-6 text-xs"
-                  >
-                    清空
-                  </Button>
-                </div>
-              </div>
-              <div className="bg-slate-950 text-slate-50 rounded p-3 font-mono text-xs max-h-96 overflow-y-auto min-h-[100px]">
-                {serverLogs.length === 0 ? (
-                  <div className="text-slate-500 text-center py-8">暂无日志</div>
-                ) : (
-                  serverLogs.map((log, i) => (
-                    <div key={i} className="py-0.5 flex gap-2">
-                      <span className="text-slate-500">
-                        {new Date(log.timestamp).toLocaleTimeString('zh-CN')}
-                      </span>
-                      <span className={
-                        log.level === 'error' ? 'text-red-400' :
-                        log.level === 'warn' ? 'text-yellow-400' :
-                        'text-green-400'
-                      }>
-                        [{log.source}]
-                      </span>
-                      <span>{log.message}</span>
-                    </div>
-                  ))
-                )}
+              <Label className="text-sm">服务器日志</Label>
+              <div className="bg-slate-100 rounded p-3 text-sm text-slate-600">
+                <p>💡 服务器执行日志在 Vercel 控制台查看：</p>
+                <ol className="mt-2 ml-4 space-y-1 list-decimal">
+                  <li>打开 <a href="https://vercel.com" target="_blank" rel="noopener" className="text-blue-600 hover:underline">Vercel Dashboard</a></li>
+                  <li>选择项目 → Functions 标签</li>
+                  <li>找到 <code className="bg-slate-200 px-1 rounded text-xs">/api/sync/dispatcher</code> 和 <code className="bg-slate-200 px-1 rounded text-xs">/api/sync/site</code></li>
+                  <li>查看实时日志输出</li>
+                </ol>
+                <p className="mt-2 text-xs">或在上方批次状态中查看错误信息</p>
               </div>
             </div>
 
