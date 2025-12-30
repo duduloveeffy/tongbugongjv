@@ -72,24 +72,6 @@ interface SyncBatch {
   completed_at: string | null;
 }
 
-// 在合并前过滤仓库
-function filterWarehousesBeforeMerge(data: InventoryItem[], excludeWarehouses: string): InventoryItem[] {
-  if (!excludeWarehouses?.trim()) return data;
-
-  const warehousesToExclude = excludeWarehouses
-    .split(/[,，]/)
-    .map(w => w.trim())
-    .filter(w => w)
-    .map(w => w.toLowerCase());
-
-  if (warehousesToExclude.length === 0) return data;
-
-  return data.filter(item => {
-    const warehouseLower = (item.仓库 || '').toLowerCase();
-    return !warehousesToExclude.some(excluded => warehouseLower.includes(excluded));
-  });
-}
-
 // 合并仓库数据
 function mergeWarehouseData(data: InventoryItem[]): InventoryItem[] {
   const grouped = new Map<string, InventoryItem[]>();
@@ -199,16 +181,13 @@ async function executeStep0(batchId: string, logId: string): Promise<{ success: 
     let inventoryData: InventoryItem[] = transformResult.data;
     console.log(`[Dispatcher ${logId}] 转换后 ${inventoryData.length} 条库存记录`);
 
-    // 4. 全局排除仓库（合并前）
-    if (filters.excludeWarehouses) {
-      inventoryData = filterWarehousesBeforeMerge(inventoryData, filters.excludeWarehouses);
-      console.log(`[Dispatcher ${logId}] 全局排除仓库后 ${inventoryData.length} 条`);
-    }
-
-    // 5. 合并仓库（全局设置）
+    // 4. 合并仓库（全局设置）
+    // 注意：不在这里应用站点特定的筛选（SKU筛选、排除前缀、排除仓库）
+    // 这些筛选由各站点在步骤1-N时根据自己的 site_filters 配置应用
     if (filters.isMergedMode) {
       inventoryData = mergeWarehouseData(inventoryData);
       console.log(`[Dispatcher ${logId}] 合并仓库后 ${inventoryData.length} 条`);
+      runtimeLogger.info('Dispatcher', `合并仓库后: ${inventoryData.length} 条记录`, { logId });
     }
 
     // 6. 加载 SKU 映射表
