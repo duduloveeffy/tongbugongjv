@@ -80,9 +80,21 @@ function calculateNetStock(item: InventoryItem): number {
 
 // 筛选库存数据
 function filterInventoryData(data: InventoryItem[], filters: FilterConfig): InventoryItem[] {
-  const { skuFilter, categoryFilter, categoryFilters, hideZeroStock, excludeSkuPrefixes } = filters;
+  const { skuFilter, categoryFilter, categoryFilters, hideZeroStock, excludeSkuPrefixes, excludeWarehouses } = filters;
 
   return data.filter(item => {
+    // 仓库排除
+    if (excludeWarehouses?.trim()) {
+      const excludeList = excludeWarehouses.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
+      if (excludeList.some(warehouse => {
+        const itemWarehouse = (item.仓库 || '').trim();
+        const excludeWarehouse = warehouse.trim();
+        return itemWarehouse === excludeWarehouse || itemWarehouse.includes(excludeWarehouse);
+      })) {
+        return false;
+      }
+    }
+
     // SKU前缀排除
     if (excludeSkuPrefixes?.trim()) {
       const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
