@@ -550,11 +550,17 @@ export async function GET(_request: NextRequest) {
       const result = await triggerSiteSyncInternal(batch.id, currentStep, logId);
 
       if (!result.success) {
-        console.error(`[Dispatcher ${logId}] 站点 ${currentStep} 同步失败: ${result.error}`);
-        // 继续下一个站点，不中断整个批次
+        console.error(`[Dispatcher ${logId}] 站点 ${currentStep} 触发失败: ${result.error}`);
+        // 触发失败,不更新步骤,下次重试
+        return NextResponse.json({
+          success: false,
+          error: `站点 ${currentStep} 触发失败: ${result.error}`,
+          batch_id: batch.id,
+          step: currentStep,
+        }, { status: 500 });
       }
 
-      // 更新批次进度
+      // 站点触发成功,更新批次进度
       const nextStep = currentStep + 1;
       const isLastSite = nextStep > batch.total_sites;
 
@@ -734,11 +740,17 @@ export async function POST(_request: NextRequest) {
       const result = await triggerSiteSyncInternal(batch.id, currentStep, logId);
 
       if (!result.success) {
-        console.error(`[Dispatcher ${logId}] 站点 ${currentStep} 同步失败: ${result.error}`);
-        // 继续下一个站点，不中断整个批次
+        console.error(`[Dispatcher ${logId}] 站点 ${currentStep} 触发失败: ${result.error}`);
+        // 触发失败,不更新步骤,下次重试
+        return NextResponse.json({
+          success: false,
+          error: `站点 ${currentStep} 触发失败: ${result.error}`,
+          batch_id: batch.id,
+          step: currentStep,
+        }, { status: 500 });
       }
 
-      // 更新批次进度
+      // 站点触发成功,更新批次进度
       const nextStep = currentStep + 1;
       const isLastSite = nextStep > batch.total_sites;
 
