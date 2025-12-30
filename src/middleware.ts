@@ -15,6 +15,7 @@ const PUBLIC_ROUTES = [
   '/api/sync/local-cron',
   '/api/sync/dispatcher',
   '/api/sync/dispatcher-logs',
+  '/api/sync/debug-batch',
   '/api/sync/site',
   '/api/sync/batch-status',
   // Stock update API (called by auto sync internally)

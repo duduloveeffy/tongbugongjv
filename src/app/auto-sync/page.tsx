@@ -531,24 +531,24 @@ export default function AutoSyncPage() {
                 variant="ghost"
                 size="sm"
                 onClick={async () => {
-                  addDebugLog('📋 加载后端日志...');
+                  addDebugLog('🔍 诊断当前批次...');
                   try {
-                    const res = await fetch('/api/sync/dispatcher-logs');
+                    const res = await fetch('/api/sync/debug-batch');
                     const data = await res.json();
-                    if (data.success && data.logs) {
-                      const lines = data.logs.split('\n');
+                    if (data.success && data.analysis) {
+                      const lines = data.analysis.split('\n');
                       lines.forEach((line: string) => addDebugLog(line));
-                      toast.success('日志已加载');
+                      toast.success('诊断完成');
                     } else {
-                      addDebugLog(`❌ 加载失败: ${data.error}`);
+                      addDebugLog(`❌ 诊断失败: ${data.error}`);
                     }
                   } catch (err) {
                     addDebugLog(`❌ 网络错误: ${err}`);
                   }
                 }}
               >
-                <History className="w-4 h-4 mr-1" />
-                查看后端日志
+                <AlertCircle className="w-4 h-4 mr-1" />
+                诊断问题
               </Button>
               {activeBatch && (
                 <span className="text-sm text-muted-foreground">
