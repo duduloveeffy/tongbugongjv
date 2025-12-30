@@ -324,11 +324,19 @@ async function completeBatch(batch: SyncBatch, logId: string): Promise<void> {
 
   try {
     // 1. 获取所有站点结果
-    const { data: siteResults } = await supabase
+    const { data: siteResults, error: siteResultsError } = await supabase
       .from('sync_site_results')
       .select('*')
       .eq('batch_id', batch.id)
       .order('step_index', { ascending: true });
+
+    console.log(`[Dispatcher ${logId}] 查询站点结果: batch_id=${batch.id}, 结果数=${siteResults?.length || 0}, 错误=${siteResultsError?.message || '无'}`);
+
+    if (siteResults && siteResults.length > 0) {
+      for (const r of siteResults) {
+        console.log(`[Dispatcher ${logId}] 站点结果: ${r.site_name}, status=${r.status}, total_checked=${r.total_checked}`);
+      }
+    }
 
     // 2. 计算总体统计
     const totalStats = {
