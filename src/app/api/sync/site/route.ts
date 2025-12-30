@@ -82,7 +82,10 @@ function calculateNetStock(item: InventoryItem): number {
 function filterInventoryData(data: InventoryItem[], filters: FilterConfig): InventoryItem[] {
   const { skuFilter, categoryFilter, categoryFilters, hideZeroStock, excludeSkuPrefixes, excludeWarehouses } = filters;
 
-  return data.filter(item => {
+  let excludedByWarehouse = 0;
+  let excludedBySkuPrefix = 0;
+
+  const filtered = data.filter(item => {
     // 仓库排除
     if (excludeWarehouses?.trim()) {
       const excludeList = excludeWarehouses.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
@@ -91,6 +94,7 @@ function filterInventoryData(data: InventoryItem[], filters: FilterConfig): Inve
         const excludeWarehouse = warehouse.trim();
         return itemWarehouse === excludeWarehouse || itemWarehouse.includes(excludeWarehouse);
       })) {
+        excludedByWarehouse++;
         return false;
       }
     }
@@ -99,6 +103,7 @@ function filterInventoryData(data: InventoryItem[], filters: FilterConfig): Inve
     if (excludeSkuPrefixes?.trim()) {
       const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
       if (excludeList.some(prefix => item.产品代码.toLowerCase().startsWith(prefix.toLowerCase()))) {
+        excludedBySkuPrefix++;
         return false;
       }
     }
@@ -138,6 +143,10 @@ function filterInventoryData(data: InventoryItem[], filters: FilterConfig): Inve
 
     return true;
   });
+
+  console.log(`[Filter] 原始: ${data.length} 条 → 筛选后: ${filtered.length} 条 (仓库排除: ${excludedByWarehouse}, SKU前缀排除: ${excludedBySkuPrefix})`);
+
+  return filtered;
 }
 
 // 检测产品状态
