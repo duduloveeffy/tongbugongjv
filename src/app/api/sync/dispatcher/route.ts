@@ -24,6 +24,7 @@ import {
   type AutoSyncLog,
 } from '@/lib/local-config-store';
 import { buildMappingIndex, type MappingIndex } from '@/lib/h3yun/mapping-service';
+import { runtimeLogger } from '@/lib/runtime-logger';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -152,6 +153,7 @@ async function sendWechatNotification(
 // 步骤 0：拉取 ERP 数据并缓存
 async function executeStep0(batchId: string, logId: string): Promise<{ success: boolean; error?: string }> {
   console.log(`[Dispatcher ${logId}] 执行步骤 0: 拉取 ERP 数据`);
+  runtimeLogger.info('Dispatcher', '开始执行步骤 0: 拉取 ERP 数据', { logId, batchId });
 
   try {
     // 获取自动同步配置
@@ -163,6 +165,7 @@ async function executeStep0(batchId: string, logId: string): Promise<{ success: 
     const engineSecret = env.H3YUN_ENGINE_SECRET;
 
     if (!engineCode || !engineSecret || !h3yunSchemaConfig.inventorySchemaCode) {
+      runtimeLogger.error('Dispatcher', '氚云 ERP 配置不完整', { logId });
       return { success: false, error: '氚云 ERP 配置不完整' };
     }
 
@@ -176,8 +179,10 @@ async function executeStep0(batchId: string, logId: string): Promise<{ success: 
 
     // 1. 拉取库存数据
     const client = createH3YunClient(h3yunConfig);
+    runtimeLogger.info('Dispatcher', '开始拉取氚云库存数据...', { logId });
     const h3yunData = await client.fetchAllInventory(500);
     console.log(`[Dispatcher ${logId}] 获取到 ${h3yunData.length} 条氚云库存记录`);
+    runtimeLogger.info('Dispatcher', `获取氚云库存成功: ${h3yunData.length} 条记录`, { logId });
 
     // 2. 获取仓库映射
     const warehouseIds = extractUniqueWarehouses(h3yunData);
@@ -239,6 +244,7 @@ async function executeStep0(batchId: string, logId: string): Promise<{ success: 
 
     if (cacheError) {
       console.error(`[Dispatcher ${logId}] 保存缓存失败:`, cacheError);
+      runtimeLogger.error('Dispatcher', '保存缓存失败', { logId, error: cacheError.message });
       return { success: false, error: `保存缓存失败: ${cacheError.message}` };
     }
 
@@ -254,10 +260,16 @@ async function executeStep0(batchId: string, logId: string): Promise<{ success: 
       .eq('id', batchId);
 
     console.log(`[Dispatcher ${logId}] 步骤 0 完成，缓存 ID: ${cache.id}`);
+    runtimeLogger.info('Dispatcher', `步骤 0 完成: 缓存已保存`, { logId, cache_id: cache.id, inventory_count: inventoryData.length });
     return { success: true };
 
   } catch (error) {
     console.error(`[Dispatcher ${logId}] 步骤 0 失败:`, error);
+    runtimeLogger.error('Dispatcher', '步骤 0 失败', {
+      logId,
+      error: error instanceof Error ? error.message : '未知错误',
+      stack: error instanceof Error ? error.stack : undefined
+    });
     return { success: false, error: error instanceof Error ? error.message : '拉取 ERP 数据失败' };
   }
 }
@@ -269,6 +281,7 @@ async function triggerSiteSyncInternal(
   logId: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[Dispatcher ${logId}] 触发站点 ${siteIndex} 同步`);
+  runtimeLogger.info('Dispatcher', `触发站点 ${siteIndex} 同步`, { logId, batchId });
 
   try {
     // 获取当前部署的URL
@@ -281,6 +294,7 @@ async function triggerSiteSyncInternal(
 
     const apiUrl = `${baseUrl}/api/sync/site`;
     console.log(`[Dispatcher ${logId}] 调用 API: ${apiUrl}`);
+    runtimeLogger.info('Dispatcher', `调用站点同步 API`, { logId, apiUrl });
 
     // 添加内部调用标识,跳过中间件认证
     const headers: Record<string, string> = {
@@ -302,14 +316,25 @@ async function triggerSiteSyncInternal(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       console.error(`[Dispatcher ${logId}] 站点同步API返回错误: ${response.status}`, errorData);
+      runtimeLogger.error('Dispatcher', `站点同步 API 返回错误: HTTP ${response.status}`, {
+        logId,
+        siteIndex,
+        error: errorData.error || '未知错误'
+      });
       return { success: false, error: errorData.error || `HTTP ${response.status}` };
     }
 
     console.log(`[Dispatcher ${logId}] 站点 ${siteIndex} 同步触发成功`);
+    runtimeLogger.info('Dispatcher', `站点 ${siteIndex} 同步触发成功`, { logId });
     return { success: true };
 
   } catch (error) {
     console.error(`[Dispatcher ${logId}] 触发站点同步失败:`, error);
+    runtimeLogger.error('Dispatcher', '触发站点同步失败', {
+      logId,
+      siteIndex,
+      error: error instanceof Error ? error.message : '未知错误'
+    });
     return { success: false, error: error instanceof Error ? error.message : '触发站点同步失败' };
   }
 }

@@ -13,6 +13,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAutoSyncConfigAsync } from '@/lib/local-config-store';
 import { detectProducts } from '@/app/api/products/detect-cached/route';
+import { runtimeLogger } from '@/lib/runtime-logger';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -204,10 +205,12 @@ export async function POST(request: NextRequest) {
     const { batch_id, site_index } = body;
 
     if (!batch_id || !site_index) {
+      runtimeLogger.error('SiteSync', '缺少必要参数', { batch_id, site_index });
       return NextResponse.json({ success: false, error: '缺少 batch_id 或 site_index' }, { status: 400 });
     }
 
     console.log(`[Site Sync ${logId}] 开始同步批次 ${batch_id} 的站点 ${site_index}`);
+    runtimeLogger.info('SiteSync', `开始同步批次 ${batch_id} 的站点 ${site_index}`, { logId });
 
     // 1. 获取批次信息
     const { data: batch, error: batchError } = await supabase
@@ -217,8 +220,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (batchError || !batch) {
+      runtimeLogger.error('SiteSync', `批次不存在: ${batch_id}`, { batchError });
       return NextResponse.json({ success: false, error: '批次不存在' }, { status: 404 });
     }
+    runtimeLogger.info('SiteSync', `获取批次成功`, { batch_id, cache_key: batch.cache_key });
 
     // 2. 获取缓存数据
     const { data: cache, error: cacheError } = await supabase
@@ -228,8 +233,11 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (cacheError || !cache) {
+      runtimeLogger.error('SiteSync', `缓存数据不存在: ${batch_id}`, { cacheError });
       return NextResponse.json({ success: false, error: '缓存数据不存在' }, { status: 404 });
     }
+    const inventoryCount = Array.isArray(cache.inventory_data) ? cache.inventory_data.length : 0;
+    runtimeLogger.info('SiteSync', `获取缓存成功: ${inventoryCount} 条库存数据`);
 
     // 3. 获取站点结果记录
     const { data: siteResult, error: siteResultError } = await supabase
@@ -240,6 +248,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (siteResultError || !siteResult) {
+      runtimeLogger.error('SiteSync', '站点结果记录不存在', { batch_id, site_index, siteResultError });
       return NextResponse.json({ success: false, error: '站点结果记录不存在' }, { status: 404 });
     }
 
@@ -259,6 +268,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (siteError || !siteData) {
+      runtimeLogger.error('SiteSync', '站点不存在', { site_id: siteResult.site_id, siteError });
       // 更新结果为失败
       await supabase
         .from('sync_site_results')
@@ -271,6 +281,8 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({ success: false, error: '站点不存在' }, { status: 404 });
     }
+
+    runtimeLogger.info('SiteSync', `获取站点信息成功: ${siteData.name}`, { site_id: siteData.id, url: siteData.url });
 
     // 转换站点数据
     const filterArr = (siteData as any).site_filters as SiteFilterInfo[] | null;
@@ -324,6 +336,10 @@ export async function POST(request: NextRequest) {
     const inventoryData = cache.inventory_data as InventoryItem[];
     const siteInventoryData = filterInventoryData(inventoryData, siteFilters);
     console.log(`[Site Sync ${logId}] 站点 ${site.name} 筛选后 ${siteInventoryData.length} 条库存记录`);
+    runtimeLogger.info('SiteSync', `筛选后库存记录: ${siteInventoryData.length} 条`, {
+      site_name: site.name,
+      original_count: inventoryData.length
+    });
 
     // 9. 构建 SKU 映射
     const skuMappings = cache.sku_mappings as Record<string, string[]>;
@@ -355,6 +371,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 10. 检测产品状态
+    runtimeLogger.info('SiteSync', `开始检测产品状态: ${detectionSkus.length} 个 SKU`, { site_name: site.name });
     const productStatusRaw = await detectProductsDirectly(
       detectionSkus,
       site.id,
@@ -374,6 +391,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[Site Sync ${logId}] 站点 ${site.name}: ${productStatus.size}/${h3yunSkus.length} 个产品有状态`);
+    runtimeLogger.info('SiteSync', `产品检测完成: ${productStatus.size}/${h3yunSkus.length} 个产品有状态`, { site_name: site.name });
 
     // 11. 执行同步
     const baseUrl = process.env.NODE_ENV === 'development'
@@ -386,6 +404,8 @@ export async function POST(request: NextRequest) {
     let failed = 0;
     let skipped = 0;
     const details: SyncDetail[] = [];
+
+    runtimeLogger.info('SiteSync', `开始同步循环: ${siteInventoryData.length} 个库存项`, { site_name: site.name });
 
     for (const item of siteInventoryData) {
       const sku = item.产品代码;
@@ -486,6 +506,13 @@ export async function POST(request: NextRequest) {
       .eq('id', siteResult.id);
 
     console.log(`[Site Sync ${logId}] 站点 ${site.name} 完成: 有货+${syncedToInstock}, 无货+${syncedToOutofstock}, 失败${failed}, 跳过${skipped}`);
+    runtimeLogger.info('SiteSync', `站点同步完成: ${site.name}`, {
+      有货: syncedToInstock,
+      无货: syncedToOutofstock,
+      失败: failed,
+      跳过: skipped,
+      总计: totalChecked
+    });
 
     return NextResponse.json({
       success: true,
@@ -501,6 +528,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error(`[Site Sync ${logId}] 错误:`, error);
+    runtimeLogger.error('SiteSync', '站点同步失败', {
+      logId,
+      error: error instanceof Error ? error.message : '未知错误',
+      stack: error instanceof Error ? error.stack : undefined
+    });
 
     return NextResponse.json({
       success: false,

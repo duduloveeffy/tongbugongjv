@@ -137,11 +137,30 @@ export default function AutoSyncPage() {
   const [siteResults, setSiteResults] = useState<SyncSiteResult[]>([]);
   const [isLoadingBatch, setIsLoadingBatch] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [serverLogs, setServerLogs] = useState<Array<{
+    timestamp: string;
+    level: string;
+    source: string;
+    message: string;
+  }>>([]);
 
   // 添加调试日志
   const addDebugLog = useCallback((message: string) => {
     const timestamp = new Date().toLocaleTimeString('zh-CN');
     setDebugLogs(prev => [`[${timestamp}] ${message}`, ...prev].slice(0, 50));
+  }, []);
+
+  // 加载服务器日志
+  const loadServerLogs = useCallback(async () => {
+    try {
+      const response = await fetch('/api/sync/runtime-logs?limit=100');
+      const data = await response.json();
+      if (data.success) {
+        setServerLogs(data.logs || []);
+      }
+    } catch (error) {
+      console.error('加载服务器日志失败:', error);
+    }
   }, []);
 
   // 加载当前批次状态
@@ -282,6 +301,18 @@ export default function AutoSyncPage() {
     };
     init();
   }, [loadConfig, loadSites, loadLogs, loadBatchStatus]);
+
+  // 定期刷新服务器日志（当有活跃批次时）
+  useEffect(() => {
+    if (!activeBatch || activeBatch.status === 'completed' || activeBatch.status === 'failed') {
+      return;
+    }
+    // 立即加载一次
+    loadServerLogs();
+    // 然后每 3 秒刷新一次
+    const interval = setInterval(loadServerLogs, 3000);
+    return () => clearInterval(interval);
+  }, [activeBatch, loadServerLogs]);
 
   // 定期刷新批次状态（当有活跃批次时）
   useEffect(() => {
@@ -605,11 +636,58 @@ export default function AutoSyncPage() {
               </div>
             )}
 
+            {/* 服务器日志 */}
+            {serverLogs.length > 0 && (
+              <div className="space-y-2 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">服务器日志 (实时)</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={loadServerLogs}
+                      className="h-6 text-xs"
+                    >
+                      刷新
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        await fetch('/api/sync/runtime-logs', { method: 'DELETE' });
+                        setServerLogs([]);
+                      }}
+                      className="h-6 text-xs"
+                    >
+                      清空
+                    </Button>
+                  </div>
+                </div>
+                <div className="bg-slate-950 text-slate-50 rounded p-3 font-mono text-xs max-h-96 overflow-y-auto">
+                  {serverLogs.map((log, i) => (
+                    <div key={i} className="py-0.5 flex gap-2">
+                      <span className="text-slate-500">
+                        {new Date(log.timestamp).toLocaleTimeString('zh-CN')}
+                      </span>
+                      <span className={
+                        log.level === 'error' ? 'text-red-400' :
+                        log.level === 'warn' ? 'text-yellow-400' :
+                        'text-green-400'
+                      }>
+                        [{log.source}]
+                      </span>
+                      <span>{log.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 调试日志 */}
             {debugLogs.length > 0 && (
               <div className="space-y-2 pt-4 border-t">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm">实时日志</Label>
+                  <Label className="text-sm">前端日志</Label>
                   <Button
                     variant="ghost"
                     size="sm"
