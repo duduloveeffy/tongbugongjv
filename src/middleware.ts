@@ -13,6 +13,8 @@ const PUBLIC_ROUTES = [
   // Auto sync API (called by cron/scheduler, no user session)
   '/api/sync/auto',
   '/api/sync/local-cron',
+  '/api/sync/dispatcher',
+  '/api/sync/site',
   // Stock update API (called by auto sync internally)
   '/api/wc-update-stock',
 ];

@@ -136,29 +136,50 @@ export default function AutoSyncPage() {
   const [activeBatch, setActiveBatch] = useState<SyncBatch | null>(null);
   const [siteResults, setSiteResults] = useState<SyncSiteResult[]>([]);
   const [isLoadingBatch, setIsLoadingBatch] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  // 添加调试日志
+  const addDebugLog = useCallback((message: string) => {
+    const timestamp = new Date().toLocaleTimeString('zh-CN');
+    setDebugLogs(prev => [`[${timestamp}] ${message}`, ...prev].slice(0, 50));
+  }, []);
 
   // 加载当前批次状态
   const loadBatchStatus = useCallback(async () => {
     try {
+      addDebugLog('正在查询批次状态...');
       const response = await fetch('/api/sync/batch-status');
       const data = await response.json();
       if (data.success) {
         setActiveBatch(data.batch || null);
         setSiteResults(data.siteResults || []);
+        if (data.batch) {
+          addDebugLog(`批次状态: ${data.batch.status}, 步骤: ${data.batch.current_step}/${data.batch.total_sites}`);
+        } else {
+          addDebugLog('当前无活跃批次');
+        }
+      } else {
+        addDebugLog(`查询失败: ${data.error}`);
       }
     } catch (error) {
+      const msg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`加载批次状态失败: ${msg}`);
       console.error('加载批次状态失败:', error);
     }
-  }, []);
+  }, [addDebugLog]);
 
   // 手动触发调度器（使用 POST 方法，跳过 enabled 检查）
   const handleTriggerDispatcher = async () => {
     setIsLoadingBatch(true);
+    addDebugLog('🚀 手动触发调度器...');
     try {
       const response = await fetch('/api/sync/dispatcher', { method: 'POST' });
       const data = await response.json();
+      addDebugLog(`调度器响应: ${JSON.stringify(data)}`);
       if (data.success) {
         toast.info(data.message || '调度器已触发');
+        addDebugLog(`✅ ${data.message || '调度器已触发'}`);
+        addDebugLog(`批次ID: ${data.batch_id}, 当前步骤: ${data.step}`);
         // 稍后刷新状态
         setTimeout(() => {
           loadBatchStatus();
@@ -166,8 +187,11 @@ export default function AutoSyncPage() {
         }, 2000);
       } else {
         toast.error(data.error || '触发失败');
+        addDebugLog(`❌ 触发失败: ${data.error}`);
       }
     } catch (error) {
+      const msg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`❌ 网络错误: ${msg}`);
       console.error('触发调度器失败:', error);
       toast.error('触发调度器失败');
     } finally {
@@ -264,11 +288,16 @@ export default function AutoSyncPage() {
     if (!activeBatch || activeBatch.status === 'completed' || activeBatch.status === 'failed') {
       return;
     }
+    addDebugLog('⏱️ 启动自动刷新（每10秒）');
     const interval = setInterval(() => {
+      addDebugLog('🔄 自动刷新批次状态...');
       loadBatchStatus();
     }, 10000); // 每 10 秒刷新
-    return () => clearInterval(interval);
-  }, [activeBatch, loadBatchStatus]);
+    return () => {
+      addDebugLog('⏹️ 停止自动刷新');
+      clearInterval(interval);
+    };
+  }, [activeBatch, loadBatchStatus, addDebugLog]);
 
   // 保存配置
   const handleSave = async () => {
@@ -548,6 +577,28 @@ export default function AutoSyncPage() {
                         )}
                       </div>
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 调试日志 */}
+            {debugLogs.length > 0 && (
+              <div className="space-y-2 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">实时日志</Label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDebugLogs([])}
+                    className="h-6 text-xs"
+                  >
+                    清空
+                  </Button>
+                </div>
+                <div className="bg-slate-950 text-slate-50 rounded p-3 font-mono text-xs max-h-64 overflow-y-auto">
+                  {debugLogs.map((log, i) => (
+                    <div key={i} className="py-0.5">{log}</div>
                   ))}
                 </div>
               </div>
