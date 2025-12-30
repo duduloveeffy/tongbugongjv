@@ -21,6 +21,8 @@ const PUBLIC_ROUTES = [
   '/api/sync/batch-status',
   // Stock update API (called by auto sync internally)
   '/api/wc-update-stock',
+  // H3Yun diagnostic API
+  '/api/h3yun/ping',
 ];
 
 // Routes that are view-only (no sensitive data)
