@@ -221,6 +221,38 @@ export default function AutoSyncPage() {
     }
   };
 
+  // 清理所有运行中的任务
+  const handleCleanupAll = async () => {
+    if (!confirm('确定要清理所有运行中的任务吗？这会将所有未完成的批次标记为失败。')) return;
+
+    setIsLoadingBatch(true);
+    addDebugLog('🧹 开始清理所有运行中的任务...');
+    try {
+      const response = await fetch('/api/sync/cleanup', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        const msg = data.message || '清理完成';
+        addDebugLog(`✅ ${msg}`);
+        if (data.results) {
+          addDebugLog(`  - 过期批次: ${data.results.expired_batches}`);
+          addDebugLog(`  - 卡住批次: ${data.results.stuck_batches}`);
+          addDebugLog(`  - 超时站点: ${data.results.stuck_sites}`);
+        }
+        toast.success(msg);
+        await loadBatchStatus();
+      } else {
+        addDebugLog(`❌ 清理失败: ${data.error}`);
+        toast.error(data.error || '清理失败');
+      }
+    } catch (error) {
+      console.error('清理失败:', error);
+      addDebugLog(`❌ 清理失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      toast.error('清理失败');
+    } finally {
+      setIsLoadingBatch(false);
+    }
+  };
+
   // 加载配置
   const loadConfig = useCallback(async () => {
     try {
@@ -550,6 +582,16 @@ export default function AutoSyncPage() {
               >
                 <RefreshCw className="w-4 h-4 mr-1" />
                 刷新状态
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCleanupAll}
+                disabled={isLoadingBatch}
+                className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+              >
+                <XCircle className="w-4 h-4 mr-1" />
+                清理所有运行中任务
               </Button>
               <Button
                 variant="ghost"
