@@ -3,7 +3,10 @@
  * 将状态为 syncing 但实际上已卡住的批次标记为 failed
  */
 
+import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+
+config({ path: '.env.local' });
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

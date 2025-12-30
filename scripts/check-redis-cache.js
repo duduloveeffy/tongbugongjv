@@ -2,8 +2,11 @@
  * 检查 Redis 缓存中的数据
  */
 
+import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import Redis from 'ioredis';
+
+config({ path: '.env.local' });
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
