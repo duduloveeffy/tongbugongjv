@@ -527,6 +527,29 @@ export default function AutoSyncPage() {
                 <RefreshCw className="w-4 h-4 mr-1" />
                 刷新状态
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  addDebugLog('📋 加载后端日志...');
+                  try {
+                    const res = await fetch('/api/sync/dispatcher-logs');
+                    const data = await res.json();
+                    if (data.success && data.logs) {
+                      const lines = data.logs.split('\n');
+                      lines.forEach((line: string) => addDebugLog(line));
+                      toast.success('日志已加载');
+                    } else {
+                      addDebugLog(`❌ 加载失败: ${data.error}`);
+                    }
+                  } catch (err) {
+                    addDebugLog(`❌ 网络错误: ${err}`);
+                  }
+                }}
+              >
+                <History className="w-4 h-4 mr-1" />
+                查看后端日志
+              </Button>
               {activeBatch && (
                 <span className="text-sm text-muted-foreground">
                   开始于: {new Date(activeBatch.created_at).toLocaleString('zh-CN')}
