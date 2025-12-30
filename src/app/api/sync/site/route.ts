@@ -306,14 +306,35 @@ export async function POST(request: NextRequest) {
     runtimeLogger.info('SiteSync', `获取站点信息成功: ${siteData.name}`, { site_id: siteData.id, url: siteData.url });
 
     // 转换站点数据
-    const filterArr = (siteData as any).site_filters as SiteFilterInfo[] | null;
+    // site_filters 可能是对象（一对一关系）或数组（一对多关系）或 null
+    const rawFilters = (siteData as any).site_filters;
+    let siteFilterInfo: SiteFilterInfo | null = null;
+
+    if (rawFilters) {
+      if (Array.isArray(rawFilters)) {
+        // 一对多关系，取第一个
+        siteFilterInfo = rawFilters.length > 0 ? rawFilters[0] : null;
+      } else {
+        // 一对一关系，直接使用对象
+        siteFilterInfo = rawFilters as SiteFilterInfo;
+      }
+    }
+
+    console.log(`[Site Sync ${logId}] 站点筛选配置原始数据:`, {
+      rawFilters: rawFilters ? (Array.isArray(rawFilters) ? `数组[${rawFilters.length}]` : '对象') : 'null',
+      siteFilterInfo: siteFilterInfo ? {
+        exclude_warehouses: siteFilterInfo.exclude_warehouses?.substring(0, 30) || '(无)',
+        exclude_sku_prefixes: siteFilterInfo.exclude_sku_prefixes?.substring(0, 30) || '(无)',
+      } : 'null'
+    });
+
     const site: SiteInfo = {
       id: siteData.id,
       name: siteData.name,
       url: siteData.url,
       api_key: siteData.api_key,
       api_secret: siteData.api_secret,
-      site_filters: (filterArr && filterArr.length > 0) ? (filterArr[0] ?? null) : null,
+      site_filters: siteFilterInfo,
     };
 
     // 5. 更新结果为运行中
