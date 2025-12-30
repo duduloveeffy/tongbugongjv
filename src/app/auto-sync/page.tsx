@@ -637,34 +637,36 @@ export default function AutoSyncPage() {
             )}
 
             {/* 服务器日志 */}
-            {serverLogs.length > 0 && (
-              <div className="space-y-2 pt-4 border-t">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm">服务器日志 (实时)</Label>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={loadServerLogs}
-                      className="h-6 text-xs"
-                    >
-                      刷新
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={async () => {
-                        await fetch('/api/sync/runtime-logs', { method: 'DELETE' });
-                        setServerLogs([]);
-                      }}
-                      className="h-6 text-xs"
-                    >
-                      清空
-                    </Button>
-                  </div>
+            <div className="space-y-2 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">服务器日志 (实时)</Label>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={loadServerLogs}
+                    className="h-6 text-xs"
+                  >
+                    刷新
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      await fetch('/api/sync/runtime-logs', { method: 'DELETE' });
+                      setServerLogs([]);
+                    }}
+                    className="h-6 text-xs"
+                  >
+                    清空
+                  </Button>
                 </div>
-                <div className="bg-slate-950 text-slate-50 rounded p-3 font-mono text-xs max-h-96 overflow-y-auto">
-                  {serverLogs.map((log, i) => (
+              </div>
+              <div className="bg-slate-950 text-slate-50 rounded p-3 font-mono text-xs max-h-96 overflow-y-auto min-h-[100px]">
+                {serverLogs.length === 0 ? (
+                  <div className="text-slate-500 text-center py-8">暂无日志</div>
+                ) : (
+                  serverLogs.map((log, i) => (
                     <div key={i} className="py-0.5 flex gap-2">
                       <span className="text-slate-500">
                         {new Date(log.timestamp).toLocaleTimeString('zh-CN')}
@@ -678,10 +680,10 @@ export default function AutoSyncPage() {
                       </span>
                       <span>{log.message}</span>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </div>
-            )}
+            </div>
 
             {/* 调试日志 */}
             {debugLogs.length > 0 && (
