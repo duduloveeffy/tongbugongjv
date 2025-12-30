@@ -4,12 +4,13 @@
  */
 
 import { NextResponse } from 'next/server';
+import { h3yunSchemaConfig } from '@/config/h3yun.config';
 
 export async function GET() {
   try {
     const engineCode = process.env.H3YUN_ENGINE_CODE;
     const engineSecret = process.env.H3YUN_ENGINE_SECRET;
-    const schemaCode = process.env.H3YUN_INVENTORY_SCHEMA_CODE;
+    const schemaCode = h3yunSchemaConfig.inventorySchemaCode;
 
     // 检查环境变量
     if (!engineCode || !engineSecret || !schemaCode) {
