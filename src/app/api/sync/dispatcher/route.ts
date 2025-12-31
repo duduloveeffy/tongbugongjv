@@ -318,6 +318,29 @@ async function triggerSiteSyncInternal(
   }
 }
 
+// 自调用触发下一步（非阻塞）
+function triggerNextStep(logId: string): void {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    ? process.env.NEXT_PUBLIC_APP_URL
+    : process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : 'http://localhost:3000';
+
+  const apiUrl = `${baseUrl}/api/sync/dispatcher`;
+
+  console.log(`[Dispatcher ${logId}] 自调用触发下一步: ${apiUrl}`);
+
+  // 非阻塞调用，不等待响应
+  fetch(apiUrl, {
+    method: 'GET',
+    headers: {
+      'x-internal-call': 'self-trigger',
+    },
+  }).catch(err => {
+    console.error(`[Dispatcher ${logId}] 自调用失败:`, err);
+  });
+}
+
 // 完成批次：发送通知
 async function completeBatch(batch: SyncBatch, logId: string): Promise<void> {
   console.log(`[Dispatcher ${logId}] 批次完成，开始汇总和通知`);
@@ -568,9 +591,12 @@ export async function GET(_request: NextRequest) {
         }, { status: 500 });
       }
 
+      // 立即触发下一步，不等待 Cron
+      triggerNextStep(logId);
+
       return NextResponse.json({
         success: true,
-        message: 'ERP 数据拉取完成，等待下次触发执行站点同步',
+        message: 'ERP 数据拉取完成，已触发站点同步',
         batch_id: batch.id,
         step: 0,
         next_step: 1,
@@ -578,6 +604,63 @@ export async function GET(_request: NextRequest) {
 
     } else if (currentStep <= batch.total_sites) {
       // 步骤 1-N：同步站点
+
+      // 首先检查当前站点是否已经在运行或完成
+      const { data: currentSiteResult } = await supabase
+        .from('sync_site_results')
+        .select('*')
+        .eq('batch_id', batch.id)
+        .eq('step_index', currentStep)
+        .single();
+
+      if (currentSiteResult?.status === 'running') {
+        // 站点正在运行，等待下次检查
+        console.log(`[Dispatcher ${logId}] 站点 ${currentStep} 正在运行中，等待完成`);
+        return NextResponse.json({
+          success: true,
+          message: `站点 ${currentStep} 正在同步中`,
+          batch_id: batch.id,
+          step: currentStep,
+          waiting: true,
+        });
+      }
+
+      if (currentSiteResult?.status === 'completed' || currentSiteResult?.status === 'failed') {
+        // 站点已完成，进入下一步
+        const nextStep = currentStep + 1;
+        const isLastSite = nextStep > batch.total_sites;
+
+        if (isLastSite) {
+          // 所有站点完成，执行完成逻辑
+          await completeBatch(batch, logId);
+          return NextResponse.json({
+            success: true,
+            message: '所有站点同步完成',
+            batch_id: batch.id,
+            step: currentStep,
+            completed: true,
+          });
+        } else {
+          // 更新到下一步
+          await supabase
+            .from('sync_batches')
+            .update({ current_step: nextStep })
+            .eq('id', batch.id);
+
+          // 立即触发下一步
+          triggerNextStep(logId);
+
+          return NextResponse.json({
+            success: true,
+            message: `站点 ${currentStep} 已完成，进入站点 ${nextStep}`,
+            batch_id: batch.id,
+            step: currentStep,
+            next_step: nextStep,
+          });
+        }
+      }
+
+      // 站点还是 pending，需要触发同步
       const result = await triggerSiteSyncInternal(batch.id, currentStep, logId);
 
       if (!result.success) {
@@ -591,7 +674,7 @@ export async function GET(_request: NextRequest) {
         }, { status: 500 });
       }
 
-      // 站点触发成功,更新批次进度
+      // 站点触发成功（站点同步是同步执行的，所以到这里说明已经完成）
       const nextStep = currentStep + 1;
       const isLastSite = nextStep > batch.total_sites;
 
@@ -612,6 +695,9 @@ export async function GET(_request: NextRequest) {
           .from('sync_batches')
           .update({ current_step: nextStep })
           .eq('id', batch.id);
+
+        // 立即触发下一步
+        triggerNextStep(logId);
 
         return NextResponse.json({
           success: true,
