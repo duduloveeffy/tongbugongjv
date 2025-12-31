@@ -852,6 +852,9 @@ export async function POST(_request: NextRequest) {
         }, { status: 500 });
       }
 
+      // 使用 after() 调度下一步（响应后执行）
+      scheduleNextStep(logId);
+
       return NextResponse.json({
         success: true,
         message: 'ERP 数据拉取完成，正在准备同步站点',
