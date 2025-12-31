@@ -44,7 +44,9 @@
       "Bash(git reset:*)",
       "Bash(git clean:*)",
       "Bash(cat:*)",
-      "Bash(npm info:*)"
+      "Bash(npm info:*)",
+      "Bash(for i in 1 2 3 4 5 6)",
+      "Bash(do)"
     ],
     "deny": []
   }

@@ -318,8 +318,8 @@ async function triggerSiteSyncInternal(
   }
 }
 
-// 自调用触发下一步（非阻塞）
-function triggerNextStep(logId: string): void {
+// 自调用触发下一步（阻塞，确保请求发出）
+async function triggerNextStep(logId: string): Promise<void> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     ? process.env.NEXT_PUBLIC_APP_URL
     : process.env.VERCEL_URL
@@ -330,15 +330,29 @@ function triggerNextStep(logId: string): void {
 
   console.log(`[Dispatcher ${logId}] 自调用触发下一步: ${apiUrl}`);
 
-  // 非阻塞调用，不等待响应
-  fetch(apiUrl, {
-    method: 'GET',
-    headers: {
-      'x-internal-call': 'self-trigger',
-    },
-  }).catch(err => {
-    console.error(`[Dispatcher ${logId}] 自调用失败:`, err);
-  });
+  try {
+    // 等待请求发出，但不等待响应完成（设置短超时）
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+
+    await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'x-internal-call': 'self-trigger',
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    console.log(`[Dispatcher ${logId}] 自调用成功`);
+  } catch (err: any) {
+    // AbortError 是正常的（超时），其他错误才记录
+    if (err.name !== 'AbortError') {
+      console.error(`[Dispatcher ${logId}] 自调用失败:`, err);
+    } else {
+      console.log(`[Dispatcher ${logId}] 自调用已发出（超时返回）`);
+    }
+  }
 }
 
 // 完成批次：发送通知
@@ -591,8 +605,8 @@ export async function GET(_request: NextRequest) {
         }, { status: 500 });
       }
 
-      // 立即触发下一步，不等待 Cron
-      triggerNextStep(logId);
+      // 立即触发下一步，等待请求发出
+      await triggerNextStep(logId);
 
       return NextResponse.json({
         success: true,
@@ -648,7 +662,7 @@ export async function GET(_request: NextRequest) {
             .eq('id', batch.id);
 
           // 立即触发下一步
-          triggerNextStep(logId);
+          await triggerNextStep(logId);
 
           return NextResponse.json({
             success: true,
@@ -697,7 +711,7 @@ export async function GET(_request: NextRequest) {
           .eq('id', batch.id);
 
         // 立即触发下一步
-        triggerNextStep(logId);
+        await triggerNextStep(logId);
 
         return NextResponse.json({
           success: true,
