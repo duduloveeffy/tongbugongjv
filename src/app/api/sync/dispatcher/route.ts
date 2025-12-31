@@ -349,9 +349,10 @@ async function scheduleNextStep(logId: string): Promise<void> {
     }
   });
 
-  // 添加 100ms 延迟，确保 after() 回调在事件循环中被正确注册
+  // 添加 500ms 延迟，确保 after() 回调在事件循环中被正确注册
   // 这解决了站点同步执行太快（<2秒）时 after() 回调丢失的问题
-  await new Promise(resolve => setTimeout(resolve, 100));
+  // 100ms 不够，增加到 500ms
+  await new Promise(resolve => setTimeout(resolve, 500));
 }
 
 // 完成批次：发送通知
