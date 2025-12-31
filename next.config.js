@@ -7,6 +7,10 @@ import "./src/env.js";
 /** @type {import("next").NextConfig} */
 const config = {
   serverExternalPackages: ['@supabase/supabase-js'],
+  // 启用 after() API 用于后台任务
+  experimental: {
+    after: true,
+  },
   typescript: {
     // !! WARN !!
     // Dangerously allow production builds to successfully complete even if
