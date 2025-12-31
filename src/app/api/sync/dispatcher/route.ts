@@ -318,7 +318,7 @@ async function triggerSiteSyncInternal(
   }
 }
 
-// 自调用触发下一步（阻塞，确保请求发出）
+// 自调用触发下一步（不取消请求，只控制等待时间）
 async function triggerNextStep(logId: string): Promise<void> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     ? process.env.NEXT_PUBLIC_APP_URL
@@ -331,27 +331,25 @@ async function triggerNextStep(logId: string): Promise<void> {
   console.log(`[Dispatcher ${logId}] 自调用触发下一步: ${apiUrl}`);
 
   try {
-    // 等待请求发出，但不等待响应完成（设置短超时）
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
-
-    await fetch(apiUrl, {
+    // 发起请求，等待 1 秒确保请求发出
+    // 使用 Promise.race：要么请求完成，要么 1 秒后继续
+    // 注意：不使用 AbortController，请求会在后台继续执行
+    const fetchPromise = fetch(apiUrl, {
       method: 'GET',
       headers: {
         'x-internal-call': 'self-trigger',
       },
-      signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-    console.log(`[Dispatcher ${logId}] 自调用成功`);
+    await Promise.race([
+      fetchPromise.then(() => console.log(`[Dispatcher ${logId}] 自调用响应已收到`)),
+      new Promise<void>(resolve => setTimeout(() => {
+        console.log(`[Dispatcher ${logId}] 自调用已发出，不等待响应`);
+        resolve();
+      }, 1000))
+    ]);
   } catch (err: any) {
-    // AbortError 是正常的（超时），其他错误才记录
-    if (err.name !== 'AbortError') {
-      console.error(`[Dispatcher ${logId}] 自调用失败:`, err);
-    } else {
-      console.log(`[Dispatcher ${logId}] 自调用已发出（超时返回）`);
-    }
+    console.error(`[Dispatcher ${logId}] 自调用失败:`, err);
   }
 }
 
