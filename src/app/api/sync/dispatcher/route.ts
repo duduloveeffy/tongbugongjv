@@ -320,7 +320,8 @@ async function triggerSiteSyncInternal(
 }
 
 // 自调用触发下一步（使用 next/server 的 after API 确保请求在响应后继续执行）
-function scheduleNextStep(logId: string): void {
+// 返回一个 Promise，调用者应该 await 它以确保 after() 有时间注册
+async function scheduleNextStep(logId: string): Promise<void> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     ? process.env.NEXT_PUBLIC_APP_URL
     : process.env.VERCEL_URL
@@ -347,6 +348,10 @@ function scheduleNextStep(logId: string): void {
       console.error(`[Dispatcher ${logId}] 自调用失败:`, err.message);
     }
   });
+
+  // 添加 100ms 延迟，确保 after() 回调在事件循环中被正确注册
+  // 这解决了站点同步执行太快（<2秒）时 after() 回调丢失的问题
+  await new Promise(resolve => setTimeout(resolve, 100));
 }
 
 // 完成批次：发送通知
@@ -600,7 +605,7 @@ export async function GET(_request: NextRequest) {
       }
 
       // 使用 after() 调度下一步（响应后执行）
-      scheduleNextStep(logId);
+      await scheduleNextStep(logId);
 
       return NextResponse.json({
         success: true,
@@ -656,7 +661,7 @@ export async function GET(_request: NextRequest) {
             .eq('id', batch.id);
 
           // 使用 after() 调度下一步
-          scheduleNextStep(logId);
+          await scheduleNextStep(logId);
 
           return NextResponse.json({
             success: true,
@@ -705,7 +710,7 @@ export async function GET(_request: NextRequest) {
           .eq('id', batch.id);
 
         // 使用 after() 调度下一步
-        scheduleNextStep(logId);
+        await scheduleNextStep(logId);
 
         return NextResponse.json({
           success: true,
@@ -853,7 +858,7 @@ export async function POST(_request: NextRequest) {
       }
 
       // 使用 after() 调度下一步（响应后执行）
-      scheduleNextStep(logId);
+      await scheduleNextStep(logId);
 
       return NextResponse.json({
         success: true,
