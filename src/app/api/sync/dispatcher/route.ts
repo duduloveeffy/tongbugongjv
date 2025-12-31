@@ -10,6 +10,7 @@
  */
 
 import { type NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createH3YunClient } from '@/lib/h3yun/client';
 import { transformH3YunBatch, extractUniqueWarehouses } from '@/lib/h3yun/transformer';
@@ -318,8 +319,8 @@ async function triggerSiteSyncInternal(
   }
 }
 
-// 自调用触发下一步（不取消请求，只控制等待时间）
-async function triggerNextStep(logId: string): Promise<void> {
+// 自调用触发下一步（使用 next/server 的 after API 确保请求在响应后继续执行）
+function scheduleNextStep(logId: string): void {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     ? process.env.NEXT_PUBLIC_APP_URL
     : process.env.VERCEL_URL
@@ -328,29 +329,24 @@ async function triggerNextStep(logId: string): Promise<void> {
 
   const apiUrl = `${baseUrl}/api/sync/dispatcher`;
 
-  console.log(`[Dispatcher ${logId}] 自调用触发下一步: ${apiUrl}`);
+  console.log(`[Dispatcher ${logId}] 使用 after() 调度下一步: ${apiUrl}`);
 
-  try {
-    // 发起请求，等待 1 秒确保请求发出
-    // 使用 Promise.race：要么请求完成，要么 1 秒后继续
-    // 注意：不使用 AbortController，请求会在后台继续执行
-    const fetchPromise = fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'x-internal-call': 'self-trigger',
-      },
-    });
-
-    await Promise.race([
-      fetchPromise.then(() => console.log(`[Dispatcher ${logId}] 自调用响应已收到`)),
-      new Promise<void>(resolve => setTimeout(() => {
-        console.log(`[Dispatcher ${logId}] 自调用已发出，不等待响应`);
-        resolve();
-      }, 1000))
-    ]);
-  } catch (err: any) {
-    console.error(`[Dispatcher ${logId}] 自调用失败:`, err);
-  }
+  // 使用 Next.js 的 after() API，在响应发送后执行后台任务
+  // 这个任务会在 Vercel 的后台继续运行，不受响应时间限制
+  after(async () => {
+    console.log(`[Dispatcher ${logId}] after() 回调开始执行`);
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'x-internal-call': 'self-trigger',
+        },
+      });
+      console.log(`[Dispatcher ${logId}] 自调用完成: HTTP ${response.status}`);
+    } catch (err: any) {
+      console.error(`[Dispatcher ${logId}] 自调用失败:`, err.message);
+    }
+  });
 }
 
 // 完成批次：发送通知
@@ -603,8 +599,8 @@ export async function GET(_request: NextRequest) {
         }, { status: 500 });
       }
 
-      // 立即触发下一步，等待请求发出
-      await triggerNextStep(logId);
+      // 使用 after() 调度下一步（响应后执行）
+      scheduleNextStep(logId);
 
       return NextResponse.json({
         success: true,
@@ -659,8 +655,8 @@ export async function GET(_request: NextRequest) {
             .update({ current_step: nextStep })
             .eq('id', batch.id);
 
-          // 立即触发下一步
-          await triggerNextStep(logId);
+          // 使用 after() 调度下一步
+          scheduleNextStep(logId);
 
           return NextResponse.json({
             success: true,
@@ -708,8 +704,8 @@ export async function GET(_request: NextRequest) {
           .update({ current_step: nextStep })
           .eq('id', batch.id);
 
-        // 立即触发下一步
-        await triggerNextStep(logId);
+        // 使用 after() 调度下一步
+        scheduleNextStep(logId);
 
         return NextResponse.json({
           success: true,
