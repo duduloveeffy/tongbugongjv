@@ -77,7 +77,7 @@ function calculateNetStock(item: InventoryItem): number {
   return 可售库存 - 缺货;
 }
 
-// 同步单个 SKU
+// 同步单个 SKU（支持简单产品和变体产品）
 async function syncSku(
   sku: string,
   stockStatus: 'instock' | 'outofstock',
@@ -86,13 +86,13 @@ async function syncSku(
   consumerSecret: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // 直接调用 WooCommerce API
-    const searchUrl = `${siteUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}&per_page=1`;
+    const cleanUrl = siteUrl.replace(/\/$/, '');
+    const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
 
-    const authHeader = 'Basic ' + Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
-
+    // 搜索产品（会返回简单产品或变体产品）
+    const searchUrl = `${cleanUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}`;
     const searchResponse = await fetch(searchUrl, {
-      headers: { 'Authorization': authHeader }
+      headers: { 'Authorization': `Basic ${auth}` }
     });
 
     if (!searchResponse.ok) {
@@ -105,17 +105,40 @@ async function syncSku(
     }
 
     const product = products[0];
-    const productId = product.id;
 
-    // 更新库存状态
-    const updateUrl = `${siteUrl}/wp-json/wc/v3/products/${productId}`;
+    // 检查是否是变体产品
+    const isVariation = product.type === 'variation';
+
+    let updateUrl: string;
+    if (isVariation) {
+      // 变体产品需要使用变体 API 端点
+      const parentId = product.parent_id;
+      updateUrl = `${cleanUrl}/wp-json/wc/v3/products/${parentId}/variations/${product.id}`;
+    } else {
+      // 普通产品使用标准端点
+      updateUrl = `${cleanUrl}/wp-json/wc/v3/products/${product.id}`;
+    }
+
+    // 构建更新数据
+    const updateData: Record<string, unknown> = {
+      stock_status: stockStatus
+    };
+
+    // 设置库存管理方式以确保 stock_status 生效
+    if (stockStatus === 'instock') {
+      updateData.manage_stock = false;
+    } else if (stockStatus === 'outofstock') {
+      updateData.manage_stock = true;
+      updateData.stock_quantity = 0;
+    }
+
     const updateResponse = await fetch(updateUrl, {
       method: 'PUT',
       headers: {
-        'Authorization': authHeader,
+        'Authorization': `Basic ${auth}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ stock_status: stockStatus })
+      body: JSON.stringify(updateData)
     });
 
     if (!updateResponse.ok) {
