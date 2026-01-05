@@ -15,6 +15,35 @@ import { h3yunSchemaConfig } from '@/config/h3yun.config';
 import { getAutoSyncConfigAsync } from '@/lib/local-config-store';
 import { buildMappingIndex } from '@/lib/h3yun/mapping-service';
 
+// 发送企业微信通知
+async function sendWechatNotification(
+  webhookUrl: string,
+  title: string,
+  content: string,
+  isSuccess: boolean
+): Promise<boolean> {
+  console.log(`[SingleSite] 发送企业微信通知: ${title}, webhook=${webhookUrl?.substring(0, 50)}...`);
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        msgtype: 'markdown',
+        markdown: {
+          content: `### ${isSuccess ? '✅' : '❌'} ${title}\n${content}`
+        }
+      })
+    });
+
+    const responseText = await response.text();
+    console.log(`[SingleSite] 企业微信响应: status=${response.status}, body=${responseText.substring(0, 200)}`);
+    return response.ok;
+  } catch (error) {
+    console.error('[SingleSite] 发送企业微信通知失败:', error);
+    return false;
+  }
+}
+
 // 延长超时时间
 export const maxDuration = 300;
 
@@ -465,8 +494,12 @@ export async function GET(request: NextRequest) {
     };
 
     // 10. 记录同步日志到 auto_sync_logs 表
-    const status = failed > 0 ? 'partial' :
-                   (syncedToInstock === 0 && syncedToOutofstock === 0) ? 'no_changes' : 'success';
+    let status: 'success' | 'partial' | 'no_changes' | 'failed' = 'success';
+    if (failed > 0) {
+      status = 'partial';
+    } else if (syncedToInstock === 0 && syncedToOutofstock === 0) {
+      status = 'no_changes';
+    }
 
     try {
       await supabase
@@ -509,6 +542,50 @@ export async function GET(request: NextRequest) {
         .eq('name', 'default');
     } catch (configError) {
       console.warn(`[SingleSite ${logId}] 更新配置失败:`, configError);
+    }
+
+    // 12. 发送企业微信通知
+    console.log(`[SingleSite ${logId}] 企业微信通知配置: webhook=${config.wechat_webhook_url ? '已配置' : '未配置'}, notify_on_success=${config.notify_on_success}, notify_on_failure=${config.notify_on_failure}, notify_on_no_changes=${config.notify_on_no_changes}, status=${status}`);
+
+    if (config.wechat_webhook_url) {
+      const shouldNotify =
+        (config.notify_on_success && status === 'success') ||
+        (config.notify_on_failure && (status === 'partial' || status === 'failed')) ||
+        (config.notify_on_no_changes && status === 'no_changes');
+
+      console.log(`[SingleSite ${logId}] shouldNotify=${shouldNotify}`);
+
+      if (shouldNotify) {
+        const durationSec = ((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000).toFixed(1);
+        const statusText = status === 'success' ? '成功' :
+                          status === 'partial' ? '部分失败' :
+                          status === 'no_changes' ? '无变化' : '失败';
+
+        const notificationContent = [
+          `**站点**: ${site.name}`,
+          `**状态**: ${statusText}`,
+          `**检测 SKU**: ${inventoryData.length}`,
+          `**同步有货**: <font color="info">+${syncedToInstock}</font>`,
+          `**同步无货**: <font color="warning">+${syncedToOutofstock}</font>`,
+          failed > 0 ? `**失败**: <font color="warning">${failed}</font>` : '',
+          `**耗时**: ${durationSec}秒`,
+        ].filter(Boolean).join('\n');
+
+        const isSuccess = status === 'success' || status === 'no_changes';
+        const notificationSent = await sendWechatNotification(
+          config.wechat_webhook_url,
+          `库存同步 - ${site.name}`,
+          notificationContent,
+          isSuccess
+        );
+
+        // 更新通知状态到日志
+        if (notificationSent) {
+          console.log(`[SingleSite ${logId}] 企业微信通知发送成功`);
+        } else {
+          console.warn(`[SingleSite ${logId}] 企业微信通知发送失败`);
+        }
+      }
     }
 
     console.log(`[SingleSite ${logId}] 完成:`, summary);

@@ -118,6 +118,7 @@ async function sendWechatNotification(
   content: string,
   isSuccess: boolean
 ): Promise<boolean> {
+  console.log(`[Dispatcher] 发送企业微信通知: ${title}, webhook=${webhookUrl?.substring(0, 50)}...`);
   try {
     const response = await fetch(webhookUrl, {
       method: 'POST',
@@ -130,6 +131,8 @@ async function sendWechatNotification(
       })
     });
 
+    const responseText = await response.text();
+    console.log(`[Dispatcher] 企业微信响应: status=${response.status}, body=${responseText.substring(0, 200)}`);
     return response.ok;
   } catch (error) {
     console.error('[Dispatcher] 发送企业微信通知失败:', error);
@@ -414,11 +417,15 @@ async function completeBatch(batch: SyncBatch, logId: string): Promise<void> {
     // 5. 发送企业微信通知
     const config = await getAutoSyncConfigAsync();
 
+    console.log(`[Dispatcher ${logId}] 企业微信通知配置: webhook=${config.wechat_webhook_url ? '已配置' : '未配置'}, notify_on_success=${config.notify_on_success}, notify_on_failure=${config.notify_on_failure}, notify_on_no_changes=${config.notify_on_no_changes}, status=${status}`);
+
     if (config.wechat_webhook_url) {
       const shouldNotify =
         (config.notify_on_success && status === 'success') ||
         (config.notify_on_failure && status === 'partial') ||
         (config.notify_on_no_changes && status === 'no_changes');
+
+      console.log(`[Dispatcher ${logId}] shouldNotify=${shouldNotify}, siteResults=${siteResults?.length || 0}个`);
 
       if (shouldNotify && siteResults) {
         // 构建站点详情
@@ -833,7 +840,7 @@ export async function POST(_request: NextRequest) {
 
       await supabase.from('sync_site_results').insert(siteResultRecords);
 
-      console.log(`[Dispatcher ${logId}] 新批次创建成功: ${batch.id}, ${siteIds.length} 个站点`);
+      console.log(`[Dispatcher ${logId}] 新批次创建成功: ${batch.id}, ${siteIds.length} 个站��`);
     }
 
     // 4. 根据当前步骤执行操作
