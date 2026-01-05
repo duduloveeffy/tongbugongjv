@@ -77,13 +77,14 @@ function calculateNetStock(item: InventoryItem): number {
   return 可售库存 - 缺货;
 }
 
-// 同步单个 SKU（支持简单产品和变体产品）
+// 同步单个 SKU（支持简单产品和变体产品，并更新本地缓存）
 async function syncSku(
   sku: string,
   stockStatus: 'instock' | 'outofstock',
   siteUrl: string,
   consumerKey: string,
-  consumerSecret: string
+  consumerSecret: string,
+  siteId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const cleanUrl = siteUrl.replace(/\/$/, '');
@@ -145,6 +146,34 @@ async function syncSku(
       return { success: false, error: `更新失败: HTTP ${updateResponse.status}` };
     }
 
+    const updatedProduct = await updateResponse.json();
+
+    // 同步成功后更新本地缓存（与手动同步一致）
+    try {
+      const cacheUpdateData = {
+        stock_status: updatedProduct.stock_status,
+        stock_quantity: updatedProduct.stock_quantity,
+        manage_stock: updatedProduct.manage_stock,
+        synced_at: new Date().toISOString(),
+      };
+
+      // 并行更新 products 和 product_variations 表
+      await Promise.all([
+        supabase
+          .from('products')
+          .update(cacheUpdateData)
+          .eq('site_id', siteId)
+          .eq('sku', sku),
+        supabase
+          .from('product_variations')
+          .update(cacheUpdateData)
+          .eq('sku', sku)
+      ]);
+    } catch (cacheError) {
+      // 缓存更新失败不影响主流程
+      console.warn(`[syncSku] 缓存更新失败: ${sku}`, cacheError);
+    }
+
     return { success: true };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : '同步失败' };
@@ -185,9 +214,20 @@ export async function GET(request: NextRequest) {
     // 2.1 获取站点筛选配置（从 site_filters 表）
     const { data: siteFiltersData } = await supabase
       .from('site_filters')
-      .select('exclude_sku_prefixes')
+      .select('sku_filter, exclude_sku_prefixes, category_filters, exclude_warehouses')
       .eq('site_id', siteId)
       .single();
+
+    // 2.2 合并筛选配置：站点配置优先，留空则使用全局配置
+    const globalFilters = config.filters || {};
+    const mergedFilters = {
+      skuFilter: siteFiltersData?.sku_filter || globalFilters.skuFilter || '',
+      excludeSkuPrefixes: siteFiltersData?.exclude_sku_prefixes || globalFilters.excludeSkuPrefixes || '',
+      categoryFilters: siteFiltersData?.category_filters || globalFilters.categoryFilters || [],
+      excludeWarehouses: siteFiltersData?.exclude_warehouses || globalFilters.excludeWarehouses || '',
+    };
+
+    console.log(`[SingleSite ${logId}] 筛选配置: SKU白名单=${mergedFilters.skuFilter ? '有' : '无'}, 排除前缀=${mergedFilters.excludeSkuPrefixes ? '有' : '无'}, 品类=${mergedFilters.categoryFilters.length > 0 ? mergedFilters.categoryFilters.join(',') : '全部'}, 排除仓库=${mergedFilters.excludeWarehouses || '无'}`);
 
     if (!site.enabled) {
       console.log(`[SingleSite ${logId}] 站点 ${site.name} 已禁用`);
@@ -228,20 +268,69 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: '数据转换失败' }, { status: 500 });
     }
 
+    let rawInventoryData = transformResult.data as InventoryItem[];
+
+    // 4.1 应用仓库排除（在合并前）
+    if (mergedFilters.excludeWarehouses.trim()) {
+      const excludeWarehouseList = mergedFilters.excludeWarehouses
+        .split(/[,，\n]/)
+        .map((s: string) => s.trim().toLowerCase())
+        .filter((s: string) => s);
+      const beforeCount = rawInventoryData.length;
+      rawInventoryData = rawInventoryData.filter(item => {
+        const warehouse = (item.仓库 || '').toLowerCase();
+        return !excludeWarehouseList.some((exc: string) => warehouse.includes(exc));
+      });
+      console.log(`[SingleSite ${logId}] 仓库排除: ${beforeCount} → ${rawInventoryData.length} 条 (排除: ${excludeWarehouseList.join(',')})`);
+    }
+
     // 5. 合并仓库
-    let inventoryData = mergeWarehouseData(transformResult.data as InventoryItem[]);
+    let inventoryData = mergeWarehouseData(rawInventoryData);
     console.log(`[SingleSite ${logId}] 合并后 ${inventoryData.length} 条记录`);
 
-    // 5.1 应用站点筛选配置（SKU前缀排除）
-    const excludeSkuPrefixes = siteFiltersData?.exclude_sku_prefixes || '';
-    if (excludeSkuPrefixes.trim()) {
-      const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map((s: string) => s.trim()).filter((s: string) => s);
+    // 5.1 应用品类筛选（使用 includes 模糊匹配，与手动同步一致）
+    if (mergedFilters.categoryFilters.length > 0) {
+      const beforeCount = inventoryData.length;
+      inventoryData = inventoryData.filter(item => {
+        return mergedFilters.categoryFilters.some((filter: string) => {
+          const filterLower = filter.toLowerCase();
+          return (item.一级品类 || '').toLowerCase().includes(filterLower) ||
+                 (item.二级品类 || '').toLowerCase().includes(filterLower) ||
+                 (item.三级品类 || '').toLowerCase().includes(filterLower);
+        });
+      });
+      console.log(`[SingleSite ${logId}] 品类筛选: ${beforeCount} → ${inventoryData.length} 条 (品类: ${mergedFilters.categoryFilters.join(',')})`);
+    }
+
+    // 5.2 应用 SKU 白名单筛选（同时匹配产品代码和产品名称，与手动同步一致）
+    if (mergedFilters.skuFilter.trim()) {
+      const skuWhitelist = mergedFilters.skuFilter
+        .split(/[,，\n]/)
+        .map((s: string) => s.trim().toLowerCase())
+        .filter((s: string) => s);
       const beforeCount = inventoryData.length;
       inventoryData = inventoryData.filter(item => {
         const sku = item.产品代码.toLowerCase();
-        return !excludeList.some((prefix: string) => sku.startsWith(prefix.toLowerCase()));
+        const name = (item.产品名称 || '').toLowerCase();
+        return skuWhitelist.some((filter: string) =>
+          sku.includes(filter) || name.includes(filter)
+        );
       });
-      console.log(`[SingleSite ${logId}] SKU前缀排除: ${beforeCount} → ${inventoryData.length} 条 (排除前缀: ${excludeList.slice(0, 5).join(',')}${excludeList.length > 5 ? '...' : ''})`);
+      console.log(`[SingleSite ${logId}] SKU白名单: ${beforeCount} → ${inventoryData.length} 条`);
+    }
+
+    // 5.3 应用 SKU 前缀排除
+    if (mergedFilters.excludeSkuPrefixes.trim()) {
+      const excludeList = mergedFilters.excludeSkuPrefixes
+        .split(/[,，\n]/)
+        .map((s: string) => s.trim().toLowerCase())
+        .filter((s: string) => s);
+      const beforeCount = inventoryData.length;
+      inventoryData = inventoryData.filter(item => {
+        const sku = item.产品代码.toLowerCase();
+        return !excludeList.some((prefix: string) => sku.startsWith(prefix));
+      });
+      console.log(`[SingleSite ${logId}] SKU前缀排除: ${beforeCount} → ${inventoryData.length} 条 (排除: ${excludeList.slice(0, 5).join(',')}${excludeList.length > 5 ? '...' : ''})`);
     }
 
     // 6. 加载 SKU 映射
@@ -338,7 +427,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 执行同步
-        const result = await syncSku(wooSku, targetStatus, site.url, site.api_key, site.api_secret);
+        const result = await syncSku(wooSku, targetStatus, site.url, site.api_key, site.api_secret, siteId);
 
         if (result.success) {
           if (targetStatus === 'instock') {
