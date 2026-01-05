@@ -310,7 +310,7 @@ export async function GET(request: NextRequest) {
       total_checked: inventoryData.length,
       synced_to_instock: syncedToInstock,
       synced_to_outofstock: syncedToOutofstock,
-      skipped,
+      skipped_count: skipped,  // 重命名避免与 skipped: true 冲突
       failed,
     };
 
