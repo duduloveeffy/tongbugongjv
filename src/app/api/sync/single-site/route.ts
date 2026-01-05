@@ -203,24 +203,36 @@ export async function GET(request: NextRequest) {
     console.log(`[SingleSite ${logId}] 合并后 ${inventoryData.length} 条记录`);
 
     // 6. 加载 SKU 映射
+    console.log(`[SingleSite ${logId}] 开始加载 SKU 映射...`);
     let skuMappings: Record<string, string[]> = {};
     try {
       const mappingData = await client.fetchSkuMappings();
+      console.log(`[SingleSite ${logId}] 获取到 ${mappingData?.length || 0} 条映射原始数据`);
       if (mappingData && mappingData.length > 0) {
+        console.log(`[SingleSite ${logId}] 开始构建映射索引...`);
         const mappingIndex = buildMappingIndex(mappingData);
+        console.log(`[SingleSite ${logId}] 映射索引构建完成，开始转换为字典...`);
         for (const [h3yunSku, relations] of mappingIndex.h3yunToWoo.entries()) {
           skuMappings[h3yunSku] = relations.map(r => r.woocommerceSku);
         }
+        console.log(`[SingleSite ${logId}] SKU 映射加载完成: ${Object.keys(skuMappings).length} 个映射`);
+      } else {
+        console.log(`[SingleSite ${logId}] 没有 SKU 映射数据`);
       }
     } catch (error) {
       console.warn(`[SingleSite ${logId}] SKU 映射加载失败:`, error);
     }
 
     // 7. 获取产品缓存状态
-    const { data: productCache } = await supabase
+    console.log(`[SingleSite ${logId}] 开始查询产品缓存...`);
+    const { data: productCache, error: cacheError } = await supabase
       .from('products')
       .select('sku, stock_status')
       .eq('site_id', siteId);
+
+    if (cacheError) {
+      console.error(`[SingleSite ${logId}] 产品缓存查询失败:`, cacheError);
+    }
 
     const productStatus = new Map<string, string>();
     productCache?.forEach(p => {
