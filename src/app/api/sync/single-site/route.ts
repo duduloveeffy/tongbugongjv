@@ -242,11 +242,22 @@ export async function GET(request: NextRequest) {
     console.log(`[SingleSite ${logId}] 产品缓存: ${productStatus.size} 个`);
 
     // 8. 执行同步
+    console.log(`[SingleSite ${logId}] 同步配置: sync_to_instock=${config.sync_to_instock}, sync_to_outofstock=${config.sync_to_outofstock}`);
+
     let syncedToInstock = 0;
     let syncedToOutofstock = 0;
     let skipped = 0;
     let failed = 0;
     const details: Array<{ sku: string; action: string; error?: string }> = [];
+
+    // 诊断：检查特定 SKU
+    const debugSkus = ['SU-01', 'VS2-01', 'VS5-01'];
+    for (const debugSku of debugSkus) {
+      const inInventory = inventoryData.find(i => i.产品代码 === debugSku);
+      const inMapping = skuMappings[debugSku];
+      const inCache = productStatus.get(debugSku);
+      console.log(`[SingleSite ${logId}] 诊断 ${debugSku}: 库存=${inInventory ? calculateNetStock(inInventory) : '无'}, 映射=${inMapping ? inMapping.join(',') : '无'}, 缓存状态=${inCache || '无'}`);
+    }
 
     for (const item of inventoryData) {
       const sku = item.产品代码;
@@ -272,6 +283,11 @@ export async function GET(request: NextRequest) {
         } else if (currentStatus === 'outofstock' && netStock > 0 && config.sync_to_instock) {
           needSync = true;
           targetStatus = 'instock';
+        }
+
+        // 诊断：记录 SU-01 相关的处理
+        if (sku === 'SU-01' || wooSku === 'VS2-01' || wooSku === 'VS5-01') {
+          console.log(`[SingleSite ${logId}] 处理 ${sku}→${wooSku}: 净库存=${netStock}, WC状态=${currentStatus}, 需同步=${needSync}, 目标=${targetStatus}`);
         }
 
         if (!needSync || !targetStatus) {
