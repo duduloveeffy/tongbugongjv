@@ -22,67 +22,67 @@
   "crons": [
     {
       "path": "/api/sync/single-site?site_id=7e8da05b-290d-48f2-b5c5-904fe81ad3db",
-      "schedule": "0 7 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=bd4589cc-29d7-4483-8aa5-f4b46669908c",
-      "schedule": "5 7 * * *"
+      "schedule": "5 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=6cbbbdc3-aa62-4e2b-9b58-dced82de76dc",
-      "schedule": "10 7 * * *"
+      "schedule": "10 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=e7f7e121-8c41-40ed-be10-8ae7fddb1caf",
-      "schedule": "15 7 * * *"
+      "schedule": "15 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=43e95442-8537-4697-af83-d81a6aa7d238",
-      "schedule": "20 7 * * *"
+      "schedule": "20 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=547e7d5c-5b14-42b9-904d-94437e67f820",
-      "schedule": "25 7 * * *"
+      "schedule": "25 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=7f73b272-2537-43c7-914d-4564116b76f9",
-      "schedule": "30 7 * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=57568bb9-4988-4778-adc9-9820c240d669",
-      "schedule": "35 7 * * *"
+      "schedule": "35 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=a2b7a045-d389-4f3f-a632-71e0344c4d18",
-      "schedule": "40 7 * * *"
+      "schedule": "40 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=b08bc00a-a655-45bb-99d6-a672c7133fb0",
-      "schedule": "45 7 * * *"
+      "schedule": "45 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=dd2c8c53-a7e3-4959-88f3-fffdece6e16f",
-      "schedule": "50 7 * * *"
+      "schedule": "50 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=3c82945d-ac75-462e-b018-0898fbaa31c3",
-      "schedule": "55 7 * * *"
+      "schedule": "55 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=88882566-2e23-4062-ae9e-3a7907cf4f11",
-      "schedule": "0 8 * * *"
+      "schedule": "2 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=bad1ba8b-4a06-4977-a398-0798fe376195",
-      "schedule": "5 8 * * *"
+      "schedule": "7 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=4fcb9c7d-e546-4ff7-aa10-894b5bd81b42",
-      "schedule": "10 8 * * *"
+      "schedule": "12 * * * *"
     },
     {
       "path": "/api/sync/single-site?site_id=b061f0b2-d2be-47de-8c8b-04bf92d2dcdd",
-      "schedule": "15 8 * * *"
+      "schedule": "17 * * * *"
     }
   ]
 }

@@ -90,24 +90,24 @@ interface SyncLog {
   error_message: string | null;
 }
 
-// 站点定时任务配置（从 vercel.json 读取，时间为 UTC）
+// 站点定时任务配置（每小时错峰运行，分钟数）
 const SITE_SCHEDULES: Record<string, string> = {
-  '7e8da05b-290d-48f2-b5c5-904fe81ad3db': '7:00',
-  'bd4589cc-29d7-4483-8aa5-f4b46669908c': '7:05',
-  '6cbbbdc3-aa62-4e2b-9b58-dced82de76dc': '7:10',
-  'e7f7e121-8c41-40ed-be10-8ae7fddb1caf': '7:15',
-  '43e95442-8537-4697-af83-d81a6aa7d238': '7:20',
-  '547e7d5c-5b14-42b9-904d-94437e67f820': '7:25',
-  '7f73b272-2537-43c7-914d-4564116b76f9': '7:30',
-  '57568bb9-4988-4778-adc9-9820c240d669': '7:35',
-  'a2b7a045-d389-4f3f-a632-71e0344c4d18': '7:40',
-  'b08bc00a-a655-45bb-99d6-a672c7133fb0': '7:45',
-  'dd2c8c53-a7e3-4959-88f3-fffdece6e16f': '7:50',
-  '3c82945d-ac75-462e-b018-0898fbaa31c3': '7:55',
-  '88882566-2e23-4062-ae9e-3a7907cf4f11': '8:00',
-  'bad1ba8b-4a06-4977-a398-0798fe376195': '8:05',
-  '4fcb9c7d-e546-4ff7-aa10-894b5bd81b42': '8:10',
-  'b061f0b2-d2be-47de-8c8b-04bf92d2dcdd': '8:15',
+  '7e8da05b-290d-48f2-b5c5-904fe81ad3db': ':00',
+  'bd4589cc-29d7-4483-8aa5-f4b46669908c': ':05',
+  '6cbbbdc3-aa62-4e2b-9b58-dced82de76dc': ':10',
+  'e7f7e121-8c41-40ed-be10-8ae7fddb1caf': ':15',
+  '43e95442-8537-4697-af83-d81a6aa7d238': ':20',
+  '547e7d5c-5b14-42b9-904d-94437e67f820': ':25',
+  '7f73b272-2537-43c7-914d-4564116b76f9': ':30',
+  '57568bb9-4988-4778-adc9-9820c240d669': ':35',
+  'a2b7a045-d389-4f3f-a632-71e0344c4d18': ':40',
+  'b08bc00a-a655-45bb-99d6-a672c7133fb0': ':45',
+  'dd2c8c53-a7e3-4959-88f3-fffdece6e16f': ':50',
+  '3c82945d-ac75-462e-b018-0898fbaa31c3': ':55',
+  '88882566-2e23-4062-ae9e-3a7907cf4f11': ':02',
+  'bad1ba8b-4a06-4977-a398-0798fe376195': ':07',
+  '4fcb9c7d-e546-4ff7-aa10-894b5bd81b42': ':12',
+  'b061f0b2-d2be-47de-8c8b-04bf92d2dcdd': ':17',
 };
 
 export default function AutoSyncPage() {
@@ -449,7 +449,7 @@ export default function AutoSyncPage() {
               </Button>
             </div>
             <CardDescription>
-              每天 UTC 7:00-8:15 自动执行，每个站点间隔 5 分钟独立运行
+              每小时自动执行，每个站点错峰 5 分钟独立运行（UTC 时间）
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -480,7 +480,7 @@ export default function AutoSyncPage() {
 
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
                       <Clock className="w-3 h-3" />
-                      <span>{schedule ? `每天 ${schedule} UTC` : '未配置'}</span>
+                      <span>{schedule ? `每小时 ${schedule}` : '未配置'}</span>
                     </div>
 
                     <div className="flex items-center justify-between">
