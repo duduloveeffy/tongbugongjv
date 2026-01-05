@@ -9,6 +9,10 @@
  * 5. 所有站点完成后：发送通知，标记批次完成
  */
 
+// Vercel Serverless Function 配置：延长超时时间到 300 秒（5分钟）
+// 步骤0拉取ERP数据可能需要 60-120 秒
+export const maxDuration = 300;
+
 import { type NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';

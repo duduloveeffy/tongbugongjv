@@ -138,9 +138,9 @@ export class H3YunClient {
 
       console.log(`[H3Yun Client] 当前累计获取: ${allData.length} 条记录`);
 
-      // 添加延迟，避免API限流
+      // 添加延迟，避免API限流（从500ms减少到100ms，氚云API实测可承受）
       if (hasMore) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
     }
 
@@ -289,9 +289,9 @@ export class H3YunClient {
           }
         }
 
-        // 避免API限流
+        // 避免API限流（从500ms减少到100ms）
         if (hasMore) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
 

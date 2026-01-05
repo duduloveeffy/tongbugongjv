@@ -149,6 +149,21 @@ function filterInventoryData(data: InventoryItem[], filters: FilterConfig): Inve
   return filtered;
 }
 
+// 产品检测结果（包含诊断信息）
+interface DetectionResult {
+  products: Map<string, { stockStatus: string; isOnline: boolean }>;
+  diagnostics: {
+    totalSkus: number;
+    cacheHits: number;
+    apiCalls: number;
+    notFound: number;
+    withStatus: number;
+    // 需要同步的 SKU 详情
+    needSyncToInstock: string[];
+    needSyncToOutofstock: string[];
+  };
+}
+
 // 检测产品状态
 async function detectProductsDirectly(
   skus: string[],
@@ -157,29 +172,44 @@ async function detectProductsDirectly(
   consumerKey: string,
   consumerSecret: string,
   logId: string
-): Promise<Map<string, { stockStatus: string; isOnline: boolean }>> {
+): Promise<DetectionResult> {
   const results = new Map<string, { stockStatus: string; isOnline: boolean }>();
+  const diagnostics = {
+    totalSkus: skus.length,
+    cacheHits: 0,
+    apiCalls: 0,
+    notFound: 0,
+    withStatus: 0,
+    needSyncToInstock: [] as string[],
+    needSyncToOutofstock: [] as string[],
+  };
 
   try {
     const data = await detectProducts(siteId, skus, siteUrl, consumerKey, consumerSecret);
 
     if (data.success && data.products) {
+      // 记录缓存统计
+      diagnostics.cacheHits = data.stats.cacheHits;
+      diagnostics.apiCalls = data.stats.apiCalls;
+      diagnostics.notFound = data.stats.notFound;
+
       for (const product of data.products) {
         if (product.status !== 'not_found' && product.status !== 'error') {
           results.set(product.sku, {
             stockStatus: product.stockStatus,
             isOnline: product.isOnline,
           });
+          diagnostics.withStatus++;
         }
       }
     }
 
-    console.log(`[Site Sync ${logId}] 产品检测完成: ${results.size}/${skus.length} 个产品有状态`);
+    console.log(`[Site Sync ${logId}] 产品检测完成: ${results.size}/${skus.length} 个产品有状态, 缓存命中: ${diagnostics.cacheHits}, API调用: ${diagnostics.apiCalls}`);
   } catch (error) {
     console.error(`[Site Sync ${logId}] 产品检测失败:`, error);
   }
 
-  return results;
+  return { products: results, diagnostics };
 }
 
 // 同步单个 SKU
@@ -417,7 +447,7 @@ export async function POST(request: NextRequest) {
 
     // 10. 检测产品状态
     runtimeLogger.info('SiteSync', `开始检测产品状态: ${detectionSkus.length} 个 SKU`, { site_name: site.name });
-    const productStatusRaw = await detectProductsDirectly(
+    const detectionResult = await detectProductsDirectly(
       detectionSkus,
       site.id,
       site.url,
@@ -425,6 +455,8 @@ export async function POST(request: NextRequest) {
       site.api_secret,
       logId
     );
+    const productStatusRaw = detectionResult.products;
+    const detectionDiagnostics = detectionResult.diagnostics;
 
     // 映射回氚云 SKU
     const productStatus = new Map<string, { stockStatus: string; isOnline: boolean }>();
@@ -436,7 +468,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[Site Sync ${logId}] 站点 ${site.name}: ${productStatus.size}/${h3yunSkus.length} 个产品有状态`);
-    runtimeLogger.info('SiteSync', `产品检测完成: ${productStatus.size}/${h3yunSkus.length} 个产品有状态`, { site_name: site.name });
+    runtimeLogger.info('SiteSync', `产品检测完成: ${productStatus.size}/${h3yunSkus.length} 个产品有状态, 缓存命中: ${detectionDiagnostics.cacheHits}, API调用: ${detectionDiagnostics.apiCalls}`, { site_name: site.name });
 
     // 11. 执行同步
     const baseUrl = process.env.NODE_ENV === 'development'
@@ -451,6 +483,10 @@ export async function POST(request: NextRequest) {
     const details: SyncDetail[] = [];
 
     runtimeLogger.info('SiteSync', `开始同步循环: ${siteInventoryData.length} 个库存项`, { site_name: site.name });
+
+    // 用于记录需要同步的 SKU（诊断用）
+    const needSyncToInstockSkus: string[] = [];
+    const needSyncToOutofstockSkus: string[] = [];
 
     for (const item of siteInventoryData) {
       const sku = item.产品代码;
@@ -471,11 +507,13 @@ export async function POST(request: NextRequest) {
       if (currentStockStatus === 'instock' && netStock <= 0 && config.sync_to_outofstock) {
         needSync = true;
         targetStatus = 'outofstock';
+        needSyncToOutofstockSkus.push(`${sku}(库存${netStock},WC:instock)`);
       }
       // 需要同步为有货
       else if (currentStockStatus === 'outofstock' && netStock > 0 && config.sync_to_instock) {
         needSync = true;
         targetStatus = 'instock';
+        needSyncToInstockSkus.push(`${sku}(库存${netStock},WC:outofstock)`);
       }
 
       if (!needSync || !targetStatus) {
@@ -535,7 +573,32 @@ export async function POST(request: NextRequest) {
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    // 12. 更新结果
+    // 记录诊断日志
+    if (needSyncToInstockSkus.length > 0 || needSyncToOutofstockSkus.length > 0) {
+      console.log(`[Site Sync ${logId}] 需同步为有货: ${needSyncToInstockSkus.join(', ') || '无'}`);
+      console.log(`[Site Sync ${logId}] 需同步为无货: ${needSyncToOutofstockSkus.join(', ') || '无'}`);
+    }
+
+    // 构建诊断信息
+    const diagnosticsData = {
+      detection: {
+        totalSkus: detectionDiagnostics.totalSkus,
+        cacheHits: detectionDiagnostics.cacheHits,
+        apiCalls: detectionDiagnostics.apiCalls,
+        notFound: detectionDiagnostics.notFound,
+        withStatus: detectionDiagnostics.withStatus,
+      },
+      sync: {
+        needSyncToInstock: needSyncToInstockSkus,
+        needSyncToOutofstock: needSyncToOutofstockSkus,
+      },
+      config: {
+        sync_to_instock: config.sync_to_instock,
+        sync_to_outofstock: config.sync_to_outofstock,
+      },
+    };
+
+    // 12. 更新结果（包含诊断信息）
     await supabase
       .from('sync_site_results')
       .update({
@@ -546,17 +609,21 @@ export async function POST(request: NextRequest) {
         failed,
         skipped,
         details,
+        diagnostics: diagnosticsData,  // 新增诊断信息
         completed_at: new Date().toISOString(),
       })
       .eq('id', siteResult.id);
 
     console.log(`[Site Sync ${logId}] 站点 ${site.name} 完成: 有货+${syncedToInstock}, 无货+${syncedToOutofstock}, 失败${failed}, 跳过${skipped}`);
+    console.log(`[Site Sync ${logId}] 诊断: 缓存命中=${detectionDiagnostics.cacheHits}, API调用=${detectionDiagnostics.apiCalls}, 发现需同步=${needSyncToInstockSkus.length + needSyncToOutofstockSkus.length}`);
     runtimeLogger.info('SiteSync', `站点同步完成: ${site.name}`, {
       有货: syncedToInstock,
       无货: syncedToOutofstock,
       失败: failed,
       跳过: skipped,
-      总计: totalChecked
+      总计: totalChecked,
+      缓存命中: detectionDiagnostics.cacheHits,
+      API调用: detectionDiagnostics.apiCalls,
     });
 
     return NextResponse.json({
