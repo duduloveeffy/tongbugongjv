@@ -38,15 +38,7 @@ export function buildMappingIndex(
 
   console.log(`[Mapping Service] 构建映射索引，共 ${mappingData.length} 条记录`);
 
-  // 【诊断】输出前3条原始数据
-  console.log('[Mapping Service] ========== 原始数据样本 ==========');
-  mappingData.slice(0, 3).forEach((item, idx) => {
-    const wooSku = item.F0000004 || item.Name;
-    const subTableData = item['D289302Fb80a39c3ff444bbfb4fb1764d4171eb3'];
-    const h3yunSkus = Array.isArray(subTableData) ? subTableData.map(s => s.Name).join(', ') : '无';
-    console.log(`  [${idx + 1}] WooCommerce SKU: ${wooSku}, H3Yun SKUs: [${h3yunSkus}]`);
-  });
-  console.log('[Mapping Service] ==========================================');
+  // 减少日志：移除原始数据样本输出
 
   let validCount = 0;
   let skippedCount = 0;
@@ -59,14 +51,12 @@ export function buildMappingIndex(
 
     if (!wooSku) {
       skippedCount++;
-      console.warn(`[Mapping Service] 跳过记录（无WooCommerce SKU）: ${item.ObjectId}`);
       continue;
     }
 
     // 检查 WooCommerce SKU 是否是需要排除的前缀（AK-LH 等）
     if (shouldExcludeSku(wooSku)) {
       excludedCount++;
-      console.log(`[Mapping Service] 排除映射（WooCommerce SKU 匹配排除前缀）: ${wooSku}`);
       continue;
     }
 
@@ -74,7 +64,6 @@ export function buildMappingIndex(
     const subTableData = item[SUB_TABLE_FIELD];
     if (!subTableData || !Array.isArray(subTableData) || subTableData.length === 0) {
       skippedCount++;
-      console.warn(`[Mapping Service] 跳过记录（无子表数据）: ${wooSku}`);
       continue;
     }
 
@@ -90,7 +79,6 @@ export function buildMappingIndex(
       // 检查是否是需要排除的SKU前缀
       if (shouldExcludeSku(h3yunSku)) {
         excludedCount++;
-        console.log(`[Mapping Service] 排除SKU（匹配排除前缀）: ${h3yunSku} → ${wooSku}`);
         continue;
       }
 
@@ -110,7 +98,7 @@ export function buildMappingIndex(
       wooToH3yun.set(wooSku, relation);
 
       validCount++;
-      console.log(`[Mapping Service] 映射: ${h3yunSku} → ${wooSku} (数量: ${quantity})`);
+      // 减少日志：移除每条映射的输出
     }
   }
 
@@ -118,17 +106,14 @@ export function buildMappingIndex(
   console.log(`[Mapping Service] 排除前缀: [${getExcludedPrefixes().join(', ')}]`);
   console.log(`[Mapping Service] 氚云SKU数: ${h3yunToWoo.size}, WooCommerce SKU数: ${wooToH3yun.size}`);
 
-  // 【诊断】输出一对多映射的详细信息
-  console.log('[Mapping Service] ========== 一对多映射诊断 ==========');
+  // 统计一对多映射数量（减少日志：不输出每条详情）
   let oneToManyCount = 0;
-  for (const [h3yunSku, relations] of h3yunToWoo.entries()) {
+  for (const [, relations] of h3yunToWoo.entries()) {
     if (relations.length > 1) {
       oneToManyCount++;
-      console.log(`[一对多] ${h3yunSku} → [${relations.map(r => r.woocommerceSku).join(', ')}]`);
     }
   }
-  console.log(`[Mapping Service] 发现 ${oneToManyCount} 个一对多映射`);
-  console.log('[Mapping Service] ==========================================');
+  console.log(`[Mapping Service] 一对多映射数: ${oneToManyCount}`);
 
   return { h3yunToWoo, wooToH3yun };
 }
