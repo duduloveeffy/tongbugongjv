@@ -229,6 +229,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: '自动同步已禁用', skipped: true });
     }
 
+    // 1.1 检查站点是否在配置的同步列表中
+    if (!config.site_ids || !config.site_ids.includes(siteId)) {
+      console.log(`[SingleSite ${logId}] 站点 ${siteId} 不在同步列表中，跳过`);
+      return NextResponse.json({ success: true, message: '站点未启用自动同步', skipped: true });
+    }
+
     // 2. 获取站点信息
     const { data: site, error: siteError } = await supabase
       .from('wc_sites')
