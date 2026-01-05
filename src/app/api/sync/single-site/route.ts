@@ -170,10 +170,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: '自动同步已禁用', skipped: true });
     }
 
-    // 2. 获取站点信息（包含筛选配置）
+    // 2. 获取站点信息
     const { data: site, error: siteError } = await supabase
       .from('wc_sites')
-      .select('id, name, url, api_key, api_secret, enabled, site_filters')
+      .select('id, name, url, api_key, api_secret, enabled')
       .eq('id', siteId)
       .single();
 
@@ -181,6 +181,13 @@ export async function GET(request: NextRequest) {
       console.error(`[SingleSite ${logId}] 站点不存在: ${siteId}`);
       return NextResponse.json({ success: false, error: '站点不存在' }, { status: 404 });
     }
+
+    // 2.1 获取站点筛选配置（从 site_filters 表）
+    const { data: siteFiltersData } = await supabase
+      .from('site_filters')
+      .select('exclude_sku_prefixes')
+      .eq('site_id', siteId)
+      .single();
 
     if (!site.enabled) {
       console.log(`[SingleSite ${logId}] 站点 ${site.name} 已禁用`);
@@ -226,14 +233,13 @@ export async function GET(request: NextRequest) {
     console.log(`[SingleSite ${logId}] 合并后 ${inventoryData.length} 条记录`);
 
     // 5.1 应用站点筛选配置（SKU前缀排除）
-    const siteFilters = site.site_filters as { exclude_sku_prefixes?: string } | null;
-    const excludeSkuPrefixes = siteFilters?.exclude_sku_prefixes || '';
+    const excludeSkuPrefixes = siteFiltersData?.exclude_sku_prefixes || '';
     if (excludeSkuPrefixes.trim()) {
-      const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
+      const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map((s: string) => s.trim()).filter((s: string) => s);
       const beforeCount = inventoryData.length;
       inventoryData = inventoryData.filter(item => {
         const sku = item.产品代码.toLowerCase();
-        return !excludeList.some(prefix => sku.startsWith(prefix.toLowerCase()));
+        return !excludeList.some((prefix: string) => sku.startsWith(prefix.toLowerCase()));
       });
       console.log(`[SingleSite ${logId}] SKU前缀排除: ${beforeCount} → ${inventoryData.length} 条 (排除前缀: ${excludeList.slice(0, 5).join(',')}${excludeList.length > 5 ? '...' : ''})`);
     }
