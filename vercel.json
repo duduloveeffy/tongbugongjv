@@ -10,7 +10,7 @@
       "maxDuration": 300
     },
     "src/app/api/sync/dispatcher/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "src/app/api/sync/site/route.ts": {
       "maxDuration": 60
