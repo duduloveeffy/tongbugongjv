@@ -170,10 +170,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: '自动同步已禁用', skipped: true });
     }
 
-    // 2. 获取站点信息
+    // 2. 获取站点信息（包含筛选配置）
     const { data: site, error: siteError } = await supabase
       .from('wc_sites')
-      .select('id, name, url, api_key, api_secret, enabled')
+      .select('id, name, url, api_key, api_secret, enabled, site_filters')
       .eq('id', siteId)
       .single();
 
@@ -224,6 +224,19 @@ export async function GET(request: NextRequest) {
     // 5. 合并仓库
     let inventoryData = mergeWarehouseData(transformResult.data as InventoryItem[]);
     console.log(`[SingleSite ${logId}] 合并后 ${inventoryData.length} 条记录`);
+
+    // 5.1 应用站点筛选配置（SKU前缀排除）
+    const siteFilters = site.site_filters as { exclude_sku_prefixes?: string } | null;
+    const excludeSkuPrefixes = siteFilters?.exclude_sku_prefixes || '';
+    if (excludeSkuPrefixes.trim()) {
+      const excludeList = excludeSkuPrefixes.split(/[,，\n]/).map(s => s.trim()).filter(s => s);
+      const beforeCount = inventoryData.length;
+      inventoryData = inventoryData.filter(item => {
+        const sku = item.产品代码.toLowerCase();
+        return !excludeList.some(prefix => sku.startsWith(prefix.toLowerCase()));
+      });
+      console.log(`[SingleSite ${logId}] SKU前缀排除: ${beforeCount} → ${inventoryData.length} 条 (排除前缀: ${excludeList.slice(0, 5).join(',')}${excludeList.length > 5 ? '...' : ''})`);
+    }
 
     // 6. 加载 SKU 映射
     console.log(`[SingleSite ${logId}] 开始加载 SKU 映射...`);
