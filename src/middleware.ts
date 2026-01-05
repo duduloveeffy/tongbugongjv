@@ -20,6 +20,7 @@ const PUBLIC_ROUTES = [
   '/api/sync/debug-detailed',
   '/api/sync/runtime-logs',
   '/api/sync/site',
+  '/api/sync/single-site',
   '/api/sync/batch-status',
   // Stock update API (called by auto sync internally)
   '/api/wc-update-stock',
