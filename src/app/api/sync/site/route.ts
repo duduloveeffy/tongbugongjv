@@ -20,6 +20,32 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// 发送企业微信通知
+async function sendWechatNotification(
+  webhookUrl: string,
+  title: string,
+  content: string,
+  isSuccess: boolean
+): Promise<boolean> {
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        msgtype: 'markdown',
+        markdown: {
+          content: `### ${isSuccess ? '✅' : '❌'} ${title}\n${content}`
+        }
+      })
+    });
+
+    return response.ok;
+  } catch (error) {
+    console.error('[Site Sync] 发送企业微信通知失败:', error);
+    return false;
+  }
+}
+
 // 筛选配置接口
 interface FilterConfig {
   isMergedMode: boolean;
@@ -625,6 +651,56 @@ export async function POST(request: NextRequest) {
       缓存命中: detectionDiagnostics.cacheHits,
       API调用: detectionDiagnostics.apiCalls,
     });
+
+    // 13. 发送企业微信通知（手动同步）
+    if (config.wechat_webhook_url) {
+      const hasChanges = syncedToInstock > 0 || syncedToOutofstock > 0;
+      const hasFailed = failed > 0;
+      const status = hasFailed ? 'partial' : (hasChanges ? 'success' : 'no_changes');
+
+      const shouldNotify =
+        (config.notify_on_success && status === 'success') ||
+        (config.notify_on_failure && (status === 'partial' || hasFailed)) ||
+        (config.notify_on_no_changes && status === 'no_changes');
+
+      if (shouldNotify) {
+        // 构建通知内容
+        const contentParts: string[] = [
+          `**站点**: ${site.name}`,
+          `**检测SKU数**: ${totalChecked}`,
+          `**同步为有货**: ${syncedToInstock}`,
+          `**同步为无货**: ${syncedToOutofstock}`,
+          `**失败**: ${failed}`,
+        ];
+
+        // 添加具体 SKU 详情
+        const instockSkus = details.filter(d => d.action === 'to_instock').map(d => d.sku);
+        if (instockSkus.length > 0) {
+          contentParts.push(`\n> 🟢 **有货**: ${instockSkus.slice(0, 10).join(', ')}${instockSkus.length > 10 ? ` ...等${instockSkus.length}个` : ''}`);
+        }
+
+        const outofstockSkus = details.filter(d => d.action === 'to_outofstock').map(d => d.sku);
+        if (outofstockSkus.length > 0) {
+          contentParts.push(`> 🔴 **无货**: ${outofstockSkus.slice(0, 10).join(', ')}${outofstockSkus.length > 10 ? ` ...等${outofstockSkus.length}个` : ''}`);
+        }
+
+        const failedSkus = details.filter(d => d.action === 'failed').map(d => `${d.sku}(${d.error || '未知'})`);
+        if (failedSkus.length > 0) {
+          contentParts.push(`> ⚠️ **失败**: ${failedSkus.slice(0, 5).join(', ')}${failedSkus.length > 5 ? ` ...等${failedSkus.length}个` : ''}`);
+        }
+
+        const title = status === 'success' ? '手动库存同步完成'
+          : status === 'partial' ? '手动库存同步部分失败'
+          : '手动库存同步无变化';
+
+        await sendWechatNotification(
+          config.wechat_webhook_url,
+          title,
+          contentParts.join('\n'),
+          status === 'success' || status === 'no_changes'
+        );
+      }
+    }
 
     return NextResponse.json({
       success: true,

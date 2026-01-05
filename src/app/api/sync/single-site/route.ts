@@ -184,6 +184,7 @@ async function syncSku(
 export async function GET(request: NextRequest) {
   const logId = crypto.randomUUID().slice(0, 8);
   const siteId = request.nextUrl.searchParams.get('site_id');
+  const startedAt = new Date().toISOString();
 
   console.log(`[SingleSite ${logId}] 开始单站点同步, site_id=${siteId}`);
 
@@ -446,10 +447,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const completedAt = new Date().toISOString();
+
     // 9. 更新站点最后同步时间
     await supabase
       .from('wc_sites')
-      .update({ last_sync_at: new Date().toISOString() })
+      .update({ last_sync_at: completedAt })
       .eq('id', siteId);
 
     const summary = {
@@ -457,20 +460,90 @@ export async function GET(request: NextRequest) {
       total_checked: inventoryData.length,
       synced_to_instock: syncedToInstock,
       synced_to_outofstock: syncedToOutofstock,
-      skipped_count: skipped,  // 重命名避免与 skipped: true 冲突
+      skipped_count: skipped,
       failed,
     };
+
+    // 10. 记录同步日志到 auto_sync_logs 表
+    const status = failed > 0 ? 'partial' :
+                   (syncedToInstock === 0 && syncedToOutofstock === 0) ? 'no_changes' : 'success';
+
+    try {
+      await supabase
+        .from('auto_sync_logs')
+        .insert({
+          config_id: config.id || 'default',
+          started_at: startedAt,
+          completed_at: completedAt,
+          status,
+          total_skus_checked: inventoryData.length,
+          skus_synced_to_instock: syncedToInstock,
+          skus_synced_to_outofstock: syncedToOutofstock,
+          skus_failed: failed,
+          sites_processed: { [site.name]: summary },
+          error_message: null,
+          notification_sent: false,
+          notification_error: null,
+        });
+    } catch (logError) {
+      console.warn(`[SingleSite ${logId}] 记录日志失败:`, logError);
+    }
+
+    // 11. 更新 auto_sync_config 的上次运行信息
+    try {
+      await supabase
+        .from('auto_sync_config')
+        .update({
+          last_run_at: completedAt,
+          last_run_status: status,
+          last_run_summary: {
+            total_sites: 1,
+            total_checked: inventoryData.length,
+            total_synced_to_instock: syncedToInstock,
+            total_synced_to_outofstock: syncedToOutofstock,
+            total_failed: failed,
+            total_skipped: skipped,
+            duration_ms: new Date(completedAt).getTime() - new Date(startedAt).getTime(),
+          },
+        })
+        .eq('name', 'default');
+    } catch (configError) {
+      console.warn(`[SingleSite ${logId}] 更新配置失败:`, configError);
+    }
 
     console.log(`[SingleSite ${logId}] 完成:`, summary);
 
     return NextResponse.json({
       success: true,
       ...summary,
-      details: details.slice(0, 50), // 只返回前50条详情
+      details: details.slice(0, 50),
     });
 
   } catch (error) {
     console.error(`[SingleSite ${logId}] 错误:`, error);
+
+    // 记录失败日志
+    try {
+      await supabase
+        .from('auto_sync_logs')
+        .insert({
+          config_id: 'default',
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          status: 'failed',
+          total_skus_checked: 0,
+          skus_synced_to_instock: 0,
+          skus_synced_to_outofstock: 0,
+          skus_failed: 0,
+          sites_processed: null,
+          error_message: error instanceof Error ? error.message : '同步失败',
+          notification_sent: false,
+          notification_error: null,
+        });
+    } catch (_logError) {
+      // 忽略日志记录失败
+    }
+
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : '同步失败'
