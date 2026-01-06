@@ -36,75 +36,43 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
 
 ---
 
-### 2. 动态 Cron 调度器
+### 2. 批次号按整轮同步生成
 
-**优先级**: 低（项目交付最后阶段实现）
+**优先级**: 低
 
 **当前问题**:
-- 16 个站点的 Cron 任务硬编码在 `vercel.json` 中
-- 新增站点需要修改代码并重新部署
-- 无法动态调整同步频率
+- 每个站点的批次号是独立的随机 ID（如 `a1b2c3d4`）
+- 无法标识哪些站点属于同一轮同步
 
 **解决方案**:
-
-将多个固定 Cron 改为单一调度器模式：
+用时间窗口定义批次号，同一小时内的所有站点同步属于同一批次：
 
 ```
-当前架构:
-vercel.json → 16个独立Cron → /api/sync/single-site?site_id=xxx
-
-目标架构:
-vercel.json → 1个Cron(每5分钟) → /api/sync/scheduler → 动态选择站点执行
+批次号格式: YYYYMMDD-HH (北京时间)
+例如: 20260106-08 表示 2026年1月6日 08:00 这一轮同步
 ```
 
-**技术实现**:
+**实现**:
+```typescript
+// 生成批次号（北京时间的小时）
+const now = new Date();
+const beijingTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+const batchId = beijingTime.toISOString().slice(0, 13).replace(/[-T:]/g, '').slice(0, 10);
+// 结果: "2026010608"
+```
 
-1. **新建调度器 API**: `/api/sync/scheduler`
-   - 查询数据库获取所有启用的站点
-   - 根据 `last_sync_at` 找出最需要同步的站点
-   - 调用 `/api/sync/single-site` 执行同步
+**相关文件**: `src/app/api/sync/single-site/route.ts`
 
-2. **数据库字段**:
-   - `sites.sync_interval`: 同步间隔（分钟）
-   - `sites.last_sync_at`: 上次同步时间
-   - `sites.sync_enabled`: 是否启用自动同步
-
-3. **调度逻辑**:
-   ```typescript
-   // 伪代码
-   const sites = await getSitesNeedingSync();
-   // 筛选: sync_enabled = true AND (now - last_sync_at) > sync_interval
-   const nextSite = sites.sort(by: last_sync_at ASC)[0];
-   if (nextSite) {
-     await triggerSingleSiteSync(nextSite.id);
-   }
-   ```
-
-4. **vercel.json 简化**:
-   ```json
-   {
-     "crons": [
-       {
-         "path": "/api/sync/scheduler",
-         "schedule": "*/5 * * * *"
-       }
-     ]
-   }
-   ```
-
-**优势**:
-- 新增站点无需修改代码，只需在数据库添加记录
-- 可动态调整每个站点的同步频率
-- 自动负载均衡，避免同时触发多个同步
-- 更易于监控和管理
-
-**预估工作量**: 中等
-
-**依赖**: 无
+---
 
 ---
 
 ## 已完成功能
+
+### 动态 Slot 调度器
+- **完成日期**: 2026-01-06
+- **描述**: Cron 任务从硬编码 site_id 改为动态 slot 分配。slot 参数指定槽位序号，系统自动查询启用且在配置列表中的站点，按 `created_at` 排序后分配到对应槽位。新增站点只需在页面勾选，无需修改代码。
+- **相关文件**: `src/app/api/sync/single-site/route.ts`, `vercel.json`
 
 ### Cron 任务尊重页面勾选配置
 - **完成日期**: 2026-01-05

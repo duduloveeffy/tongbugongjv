@@ -209,17 +209,14 @@ async function syncSku(
   }
 }
 
-// GET: Cron 触发，通过 URL 参数指定站点
+// GET: Cron 触发，支持 slot（动态）或 site_id（兼容旧版）参数
 export async function GET(request: NextRequest) {
   const logId = crypto.randomUUID().slice(0, 8);
-  const siteId = request.nextUrl.searchParams.get('site_id');
+  const slotParam = request.nextUrl.searchParams.get('slot');
+  let siteId = request.nextUrl.searchParams.get('site_id');
   const startedAt = new Date().toISOString();
 
-  console.log(`[SingleSite ${logId}] 开始单站点同步, site_id=${siteId}`);
-
-  if (!siteId) {
-    return NextResponse.json({ success: false, error: '缺少 site_id 参数' }, { status: 400 });
-  }
+  console.log(`[SingleSite ${logId}] 开始单站点同步, slot=${slotParam}, site_id=${siteId}`);
 
   try {
     // 1. 检查自动同步是否启用
@@ -229,7 +226,59 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: '自动同步已禁用', skipped: true });
     }
 
-    // 1.1 检查站点是否在配置的同步列表中
+    // 1.1 如果使用 slot 参数，动态查询对应站点
+    if (slotParam !== null) {
+      const slotIndex = parseInt(slotParam, 10);
+      if (isNaN(slotIndex) || slotIndex < 0) {
+        return NextResponse.json({ success: false, error: 'slot 参数必须是非负整数' }, { status: 400 });
+      }
+
+      // 查询所有启用且在配置列表中的站点，按 created_at 排序
+      const { data: enabledSites, error: sitesError } = await supabase
+        .from('wc_sites')
+        .select('id, name, created_at')
+        .eq('enabled', true)
+        .order('created_at', { ascending: true });
+
+      if (sitesError) {
+        console.error(`[SingleSite ${logId}] 查询站点失败:`, sitesError);
+        return NextResponse.json({ success: false, error: '查询站点失败' }, { status: 500 });
+      }
+
+      // 筛选出在 auto_sync_config.site_ids 中的站点
+      const configuredSites = (enabledSites || []).filter(site =>
+        config.site_ids?.includes(site.id)
+      );
+
+      console.log(`[SingleSite ${logId}] 动态分配: slot=${slotIndex}, 配置站点数=${configuredSites.length}`);
+
+      // 检查 slot 是否有对应站点
+      if (slotIndex >= configuredSites.length) {
+        console.log(`[SingleSite ${logId}] slot ${slotIndex} 无对应站点 (共 ${configuredSites.length} 个站点)`);
+        return NextResponse.json({
+          success: true,
+          message: `slot ${slotIndex} 无对应站点`,
+          skipped: true,
+          total_configured_sites: configuredSites.length
+        });
+      }
+
+      // 获取对应槽位的站点
+      const targetSite = configuredSites[slotIndex];
+      if (!targetSite) {
+        return NextResponse.json({ success: true, message: '站点未找到', skipped: true });
+      }
+
+      siteId = targetSite.id;
+      console.log(`[SingleSite ${logId}] slot ${slotIndex} → 站点 ${targetSite.name} (${siteId})`);
+    }
+
+    // 参数验证
+    if (!siteId) {
+      return NextResponse.json({ success: false, error: '缺少 site_id 或 slot 参数' }, { status: 400 });
+    }
+
+    // 1.2 检查站点是否在配置的同步列表中（兼容直接使用 site_id 的情况）
     if (!config.site_ids || !config.site_ids.includes(siteId)) {
       console.log(`[SingleSite ${logId}] 站点 ${siteId} 不在同步列表中，跳过`);
       return NextResponse.json({ success: true, message: '站点未启用自动同步', skipped: true });
