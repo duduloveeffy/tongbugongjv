@@ -664,6 +664,7 @@ export async function GET(request: NextRequest) {
           `**批次号**: ${batchId}`,
           `**开始时间**: ${startTimeBeijing}`,
           `**站点**: ${site.name}`,
+          `**槽位**: ${slotParam !== null ? `slot ${slotParam}` : '手动触发'}`,
           `**状态**: ${statusText}`,
           `**检测 SKU**: ${inventoryData.length}`,
           `**同步有货**: <font color="info">+${syncedToInstock}</font>`,
