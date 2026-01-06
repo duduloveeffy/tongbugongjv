@@ -276,6 +276,7 @@ async function syncSkuWithExistingApi(
 // 主处理函数
 export async function POST(request: NextRequest) {
   const logId = crypto.randomUUID().slice(0, 8);
+  const startTime = Date.now();
 
   try {
     const body = await request.json();
@@ -700,6 +701,34 @@ export async function POST(request: NextRequest) {
           status === 'success' || status === 'no_changes'
         );
       }
+    }
+
+    // 14. 更新 auto_sync_config 表的 last_run_at 和 last_run_summary（手动同步也记录）
+    try {
+      const hasChanges = syncedToInstock > 0 || syncedToOutofstock > 0;
+      const hasFailed = failed > 0;
+      const runStatus = hasFailed ? 'partial' : (hasChanges ? 'success' : 'no_changes');
+
+      await supabase
+        .from('auto_sync_config')
+        .update({
+          last_run_at: new Date().toISOString(),
+          last_run_status: runStatus,
+          last_run_summary: {
+            site_name: site.name,
+            total_checked: totalChecked,
+            synced_to_instock: syncedToInstock,
+            synced_to_outofstock: syncedToOutofstock,
+            failed,
+            skipped,
+            duration_ms: Date.now() - startTime,
+            trigger: 'manual',
+          },
+        })
+        .eq('name', 'default');
+      console.log(`[Site Sync ${logId}] 已更新 auto_sync_config 的 last_run_at`);
+    } catch (configError) {
+      console.warn(`[Site Sync ${logId}] 更新 auto_sync_config 失败:`, configError);
     }
 
     return NextResponse.json({

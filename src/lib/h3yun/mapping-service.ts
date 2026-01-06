@@ -76,6 +76,22 @@ export function buildMappingIndex(
         continue;
       }
 
+      // 【诊断】AK-HO5 相关 SKU 详细日志
+      if (h3yunSku.includes('AK-HO5') || wooSku.includes('AK-HO5')) {
+        console.log(`[Mapping 诊断] AK-HO5 相关映射:`, {
+          wooSku,
+          h3yunSku,
+          quantity,
+          原始记录: {
+            F0000004: item.F0000004,
+            Name: item.Name,
+            子表Name: subItem.Name,
+            子表F0000002: subItem.F0000002,
+            子表全部字段: Object.keys(subItem),
+          }
+        });
+      }
+
       // 检查是否是需要排除的SKU前缀
       if (shouldExcludeSku(h3yunSku)) {
         excludedCount++;
