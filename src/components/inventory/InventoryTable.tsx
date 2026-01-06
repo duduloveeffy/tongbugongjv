@@ -8,14 +8,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { 
-  type InventoryItem, 
-  calculateNetStock, 
-  getStockStatusColor, 
-  getSyncButtonColor, 
-  getSyncButtonText 
+import {
+  type InventoryItem,
+  calculateNetStock,
+  getStockStatusColor,
+  getSyncButtonColor,
+  getSyncButtonText,
+  shouldSyncQuantity,
 } from '@/lib/inventory-utils';
-import { type SortConfig, type SortField, useInventoryStore } from '@/store/inventory';
+import { type SortField, useInventoryStore } from '@/store/inventory';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useState, lazy, Suspense } from 'react';
 
@@ -33,11 +34,11 @@ interface InventoryTableProps {
   selectedSkusForSync: Set<string>;
   syncingSkus: Set<string>;
   onSkuSelectionChange: (sku: string, checked: boolean) => void;
-  onSyncSku: (sku: string, shouldBeInStock: boolean, siteId?: string) => void;
+  onSyncSku: (sku: string, shouldBeInStock: boolean, siteId?: string, stockQuantity?: number) => void;
   isProductDetectionEnabled: boolean;
   isSalesDetectionEnabled: boolean;
   selectedSiteId?: string | null;
-  selectedSiteName?: string; // 新增：站点名称
+  selectedSiteName?: string;
 }
 
 export function InventoryTable({
@@ -450,15 +451,21 @@ export function InventoryTable({
                               <Button
                                 size="sm"
                                 disabled={isSyncing || !item.productData}
-                                variant={getSyncButtonColor(isOnline, netStock, item.productData?.stockStatus) as any}
+                                variant={getSyncButtonColor(isOnline, netStock, item.productData?.stockStatus, item.productData?.stockQuantity) as any}
                                 onClick={() => {
-                                  // 根据当前库存状态切换：如果当前是有货(instock)则切换为无货，反之亦然
                                   const currentStockStatus = item.productData?.stockStatus || 'outofstock';
-                                  const shouldBeInStock = currentStockStatus === 'outofstock';
-                                  onSyncSku(item.产品代码, shouldBeInStock, selectedSiteId || undefined);
+                                  // 判断是否需要同步具体数量（低库存情况）
+                                  if (shouldSyncQuantity(currentStockStatus, netStock)) {
+                                    // 低库存：同步具体数量
+                                    onSyncSku(item.产品代码, true, selectedSiteId || undefined, netStock);
+                                  } else {
+                                    // 正常情况：切换库存状态
+                                    const shouldBeInStock = currentStockStatus === 'outofstock';
+                                    onSyncSku(item.产品代码, shouldBeInStock, selectedSiteId || undefined);
+                                  }
                                 }}
                               >
-                                {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock, item.productData?.stockStatus)}
+                                {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock, item.productData?.stockStatus, item.productData?.stockQuantity)}
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>

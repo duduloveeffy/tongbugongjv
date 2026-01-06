@@ -9,7 +9,9 @@ export async function POST(request: NextRequest) {
     const consumerSecret = formData.get('consumerSecret') as string;
     const sku = formData.get('sku') as string;
     const stockStatus = formData.get('stockStatus') as string;
-    const siteId = formData.get('siteId') as string | null; // 新增：站点ID
+    const siteId = formData.get('siteId') as string | null;
+    const stockQuantityStr = formData.get('stockQuantity') as string | null; // 新增：具体库存数量
+    const stockQuantity = stockQuantityStr !== null ? parseInt(stockQuantityStr, 10) : null;
 
     if (!siteUrl || !consumerKey || !consumerSecret || !sku || !stockStatus) {
       return NextResponse.json({ error: '参数不完整' }, { status: 400 });
@@ -126,19 +128,23 @@ export async function POST(request: NextRequest) {
     const updateData: any = {
       stock_status: stockStatus
     };
-    
-    // 如果要设置为有货，但当前库存为0或未管理库存，我们需要：
-    // 1. 关闭库存管理或设置一个最小库存数量
-    // 2. 这样stock_status才能真正生效
-    if (stockStatus === 'instock') {
-      // 方案1：关闭库存管理，让stock_status完全控制库存状态
+
+    // 如果传入了具体库存数量，启用库存管理并设置数量
+    if (stockQuantity !== null && !isNaN(stockQuantity)) {
+      updateData.manage_stock = true;
+      updateData.stock_quantity = stockQuantity;
+      // 根据数量自动设置状态
+      if (stockQuantity <= 0) {
+        updateData.stock_status = 'outofstock';
+      } else {
+        updateData.stock_status = 'instock';
+      }
+    } else if (stockStatus === 'instock') {
+      // 没有传入具体数量，使用旧逻辑
+      // 关闭库存管理，让stock_status完全控制库存状态
       updateData.manage_stock = false;
-      
-      // 方案2：或者设置一个最小库存数量（备用方案）
-      // updateData.manage_stock = true;
-      // updateData.stock_quantity = 1;
     } else if (stockStatus === 'outofstock') {
-      // 设置为缺货时，可以启用库存管理并设置数量为0
+      // 设置为缺货时，启用库存管理并设置数量为0
       updateData.manage_stock = true;
       updateData.stock_quantity = 0;
     }

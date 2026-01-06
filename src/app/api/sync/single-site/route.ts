@@ -15,6 +15,9 @@ import { h3yunSchemaConfig } from '@/config/h3yun.config';
 import { getAutoSyncConfigAsync } from '@/lib/local-config-store';
 import { buildMappingIndex } from '@/lib/h3yun/mapping-service';
 
+// 低库存阈值：当 WC 显示有货但本地净库存在 1-10 时，同步具体数量而非状态
+const LOW_STOCK_THRESHOLD = 10;
+
 // 发送企业微信通知
 async function sendWechatNotification(
   webhookUrl: string,
@@ -107,13 +110,15 @@ function calculateNetStock(item: InventoryItem): number {
 }
 
 // 同步单个 SKU（支持简单产品和变体产品，并更新本地缓存）
+// stockQuantity: 可选参数，传入时同步具体数量而非仅切换状态
 async function syncSku(
   sku: string,
   stockStatus: 'instock' | 'outofstock',
   siteUrl: string,
   consumerKey: string,
   consumerSecret: string,
-  siteId: string
+  siteId: string,
+  stockQuantity?: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const cleanUrl = siteUrl.replace(/\/$/, '');
@@ -154,10 +159,22 @@ async function syncSku(
       stock_status: stockStatus
     };
 
-    // 设置库存管理方式以确保 stock_status 生效
-    if (stockStatus === 'instock') {
+    // 如果传入了具体库存数量（低库存情况），启用库存管理并设置数量
+    if (stockQuantity !== undefined) {
+      updateData.manage_stock = true;
+      updateData.stock_quantity = stockQuantity;
+      // 根据数量自动设置状态
+      if (stockQuantity <= 0) {
+        updateData.stock_status = 'outofstock';
+      } else {
+        updateData.stock_status = 'instock';
+      }
+    } else if (stockStatus === 'instock') {
+      // 没有传入具体数量，使用旧逻辑
+      // 关闭库存管理，让 stock_status 完全控制库存状态
       updateData.manage_stock = false;
     } else if (stockStatus === 'outofstock') {
+      // 设置为缺货时，启用库存管理并设置数量为 0
       updateData.manage_stock = true;
       updateData.stock_quantity = 0;
     }
@@ -496,9 +513,10 @@ export async function GET(request: NextRequest) {
 
     let syncedToInstock = 0;
     let syncedToOutofstock = 0;
+    let syncedQuantity = 0; // 新增：同步具体数量的计数
     let skipped = 0;
     let failed = 0;
-    const details: Array<{ sku: string; action: string; error?: string }> = [];
+    const details: Array<{ sku: string; action: string; quantity?: number; error?: string }> = [];
 
     // 诊断：检查特定 SKU
     const debugSkus = ['SU-01', 'VS2-01', 'VS5-01'];
@@ -526,18 +544,27 @@ export async function GET(request: NextRequest) {
 
         let needSync = false;
         let targetStatus: 'instock' | 'outofstock' | null = null;
+        let syncStockQuantity: number | undefined = undefined; // 低库存时同步具体数量
 
+        // 判断同步条件
         if (currentStatus === 'instock' && netStock <= 0 && config.sync_to_outofstock) {
+          // 情况1：WC有货但本地无货 → 同步为无货
           needSync = true;
           targetStatus = 'outofstock';
+        } else if (currentStatus === 'instock' && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD && config.sync_to_outofstock) {
+          // 情况2：WC有货但本地低库存(1-10) → 同步具体数量
+          needSync = true;
+          targetStatus = 'instock'; // 保持有货状态，但更新数量
+          syncStockQuantity = netStock;
         } else if (currentStatus === 'outofstock' && netStock > 0 && config.sync_to_instock) {
+          // 情况3：WC无货但本地有货 → 同步为有货
           needSync = true;
           targetStatus = 'instock';
         }
 
         // 诊断：记录 SU-01 相关的处理
         if (sku === 'SU-01' || wooSku === 'VS2-01' || wooSku === 'VS5-01') {
-          console.log(`[SingleSite ${batchId}] 处理 ${sku}→${wooSku}: 净库存=${netStock}, WC状态=${currentStatus}, 需同步=${needSync}, 目标=${targetStatus}`);
+          console.log(`[SingleSite ${batchId}] 处理 ${sku}→${wooSku}: 净库存=${netStock}, WC状态=${currentStatus}, 需同步=${needSync}, 目标=${targetStatus}, 同步数量=${syncStockQuantity ?? '无'}`);
         }
 
         if (!needSync || !targetStatus) {
@@ -545,18 +572,24 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        // 执行同步
-        const result = await syncSku(wooSku, targetStatus, site.url, site.api_key, site.api_secret, siteId);
+        // 执行同步（传入 stockQuantity 参数）
+        const result = await syncSku(wooSku, targetStatus, site.url, site.api_key, site.api_secret, siteId, syncStockQuantity);
 
         if (result.success) {
-          if (targetStatus === 'instock') {
+          if (syncStockQuantity !== undefined) {
+            // 低库存数量同步
+            syncedQuantity++;
+            details.push({ sku: wooSku, action: 'sync_quantity', quantity: syncStockQuantity });
+            console.log(`[SingleSite ${batchId}] ${wooSku} → 数量=${syncStockQuantity} ✓`);
+          } else if (targetStatus === 'instock') {
             syncedToInstock++;
             details.push({ sku: wooSku, action: 'to_instock' });
+            console.log(`[SingleSite ${batchId}] ${wooSku} → ${targetStatus} ✓`);
           } else {
             syncedToOutofstock++;
             details.push({ sku: wooSku, action: 'to_outofstock' });
+            console.log(`[SingleSite ${batchId}] ${wooSku} → ${targetStatus} ✓`);
           }
-          console.log(`[SingleSite ${batchId}] ${wooSku} → ${targetStatus} ✓`);
         } else {
           failed++;
           details.push({ sku: wooSku, action: 'failed', error: result.error });
@@ -578,6 +611,7 @@ export async function GET(request: NextRequest) {
       total_checked: inventoryData.length,
       synced_to_instock: syncedToInstock,
       synced_to_outofstock: syncedToOutofstock,
+      synced_quantity: syncedQuantity, // 新增：低库存数量同步计数
       skipped_count: skipped,
       failed,
     };
@@ -586,7 +620,8 @@ export async function GET(request: NextRequest) {
     let status: 'success' | 'partial' | 'no_changes' | 'failed' = 'success';
     if (failed > 0) {
       status = 'partial';
-    } else if (syncedToInstock === 0 && syncedToOutofstock === 0) {
+    } else if (syncedToInstock === 0 && syncedToOutofstock === 0 && syncedQuantity === 0) {
+      // 也要考虑 syncedQuantity
       status = 'no_changes';
     }
 
@@ -661,6 +696,7 @@ export async function GET(request: NextRequest) {
         // 提取同步的 SKU 列表
         const instockSkus = details.filter(d => d.action === 'to_instock').map(d => d.sku);
         const outofstockSkus = details.filter(d => d.action === 'to_outofstock').map(d => d.sku);
+        const quantitySkus = details.filter(d => d.action === 'sync_quantity').map(d => `${d.sku}(${d.quantity})`);
 
         const notificationContent = [
           `**批次号**: ${batchId}`,
@@ -671,11 +707,13 @@ export async function GET(request: NextRequest) {
           `**检测 SKU**: ${inventoryData.length}`,
           `**同步有货**: <font color="info">+${syncedToInstock}</font>`,
           `**同步无货**: <font color="warning">+${syncedToOutofstock}</font>`,
+          syncedQuantity > 0 ? `**同步数量**: <font color="comment">${syncedQuantity}</font>` : '',
           failed > 0 ? `**失败**: <font color="warning">${failed}</font>` : '',
           `**耗时**: ${durationSec}秒`,
           // 显示具体 SKU（最多显示 10 个）
           instockSkus.length > 0 ? `\n> 🟢 **有货 SKU**: ${instockSkus.slice(0, 10).join(', ')}${instockSkus.length > 10 ? ` ...等${instockSkus.length}个` : ''}` : '',
           outofstockSkus.length > 0 ? `> 🔴 **无货 SKU**: ${outofstockSkus.slice(0, 10).join(', ')}${outofstockSkus.length > 10 ? ` ...等${outofstockSkus.length}个` : ''}` : '',
+          quantitySkus.length > 0 ? `> 🟠 **数量同步**: ${quantitySkus.slice(0, 10).join(', ')}${quantitySkus.length > 10 ? ` ...等${quantitySkus.length}个` : ''}` : '',
         ].filter(Boolean).join('\n');
 
         const isSuccess = status === 'success' || status === 'no_changes';

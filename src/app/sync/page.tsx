@@ -393,6 +393,7 @@ export default function SyncPage() {
               isOnline: product.status === 'publish',
               status: product.status,
               stockStatus: product.stock_status,
+              stockQuantity: product.stock_quantity,
               productUrl: product.permalink,
             };
 
@@ -426,6 +427,7 @@ export default function SyncPage() {
                 isOnline: newResult.isOnline,
                 status: newResult.status,
                 stockStatus: newResult.stockStatus,
+                stockQuantity: newResult.stockQuantity,
                 productUrl: newResult.productUrl,
                 woocommerceSku: result.sku,
                 isMapped: false,
@@ -496,7 +498,7 @@ export default function SyncPage() {
   };
 
   // Sync SKU
-  const handleSyncSku = async (sku: string, shouldBeInStock: boolean, siteId?: string) => {
+  const handleSyncSku = async (sku: string, shouldBeInStock: boolean, siteId?: string, stockQuantity?: number) => {
     // 检查是否是排除的SKU前缀
     const { shouldExcludeSku, getExcludedPrefixes } = await import('@/lib/sku-exclusion');
     if (shouldExcludeSku(sku)) {
@@ -567,6 +569,10 @@ export default function SyncPage() {
             stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
             siteId: siteId || '',
           });
+          // 如果传入了具体库存数量，添加到参数中
+          if (stockQuantity !== undefined) {
+            params.set('stockQuantity', stockQuantity.toString());
+          }
 
           const response = await fetch('/api/wc-update-stock', {
             method: 'POST',
@@ -602,12 +608,14 @@ export default function SyncPage() {
               const updatedResults = item.productData.allMappedResults.map(r => ({
                 ...r,
                 stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
+                stockQuantity: stockQuantity !== undefined ? stockQuantity : r.stockQuantity,
               }));
               return {
                 ...item,
                 productData: {
                   ...item.productData,
                   stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
+                  stockQuantity: stockQuantity !== undefined ? stockQuantity : item.productData.stockQuantity,
                   allMappedResults: updatedResults,
                 }
               };
@@ -617,6 +625,7 @@ export default function SyncPage() {
                 productData: {
                   ...item.productData,
                   stockStatus: shouldBeInStock ? 'instock' : 'outofstock',
+                  stockQuantity: stockQuantity !== undefined ? stockQuantity : item.productData.stockQuantity,
                 }
               };
             }

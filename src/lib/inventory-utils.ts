@@ -56,6 +56,7 @@ export interface InventoryItem {
     isOnline: boolean;
     status: string;
     stockStatus: string;
+    stockQuantity?: number;    // WooCommerce 上的库存数量
     productUrl?: string;
     woocommerceSku?: string;  // 映射的WooCommerce SKU（如果使用了映射）
     isMapped?: boolean;        // 是否使用了SKU映射
@@ -65,6 +66,7 @@ export interface InventoryItem {
       isOnline: boolean;
       status: string;
       stockStatus: string;
+      stockQuantity?: number;
       productUrl?: string;
     }>;
   };
@@ -125,32 +127,60 @@ export const getStockStatusColor = (netStock: number): string => {
   return 'text-red-600';
 };
 
+// 低库存阈值
+export const LOW_STOCK_THRESHOLD = 10;
+
 // 获取同步按钮颜色（基于库存状态和净库存判断）
-export const getSyncButtonColor = (isOnline: boolean, netStock: number, stockStatus?: string): string => {
+export const getSyncButtonColor = (isOnline: boolean, netStock: number, stockStatus?: string, wcStockQuantity?: number): string => {
   // 如果有库存状态信息，基于库存状态判断
   if (stockStatus) {
     if (stockStatus === 'instock' && netStock <= 0) return 'destructive'; // 红色 - 显示有货但净库存<=0
-    if (stockStatus === 'outofstock' && netStock > 0) return 'default'; // 蓝色 - 显示无货但净库存>0
+    // 低库存情况
+    if (stockStatus === 'instock' && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD) {
+      // 如果 WC 库存数量与本地一致，说明已同步过，显示淡橙色
+      if (wcStockQuantity !== undefined && wcStockQuantity === netStock) {
+        return 'warning-muted'; // 淡橙色 - 已同步
+      }
+      return 'warning'; // 橙色 - 需要同步
+    }
+    if (stockStatus === 'outofstock' && netStock > 0) return 'default'; // 黑色 - 显示无货但净库存>0
     return 'secondary'; // 灰色 - 状态正常
   }
-  
+
   // 兼容旧逻辑（基于上架状态）
   if (isOnline && netStock <= 0) return 'destructive';
+  if (isOnline && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD) return 'warning';
   if (!isOnline && netStock > 0) return 'default';
   return 'secondary';
 };
 
 // 获取同步按钮文本（基于当前库存状态显示切换操作）
-export const getSyncButtonText = (isOnline: boolean, netStock: number, currentStockStatus?: string): string => {
+export const getSyncButtonText = (isOnline: boolean, netStock: number, currentStockStatus?: string, wcStockQuantity?: number): string => {
   // 如果有当前库存状态，显示切换操作
   if (currentStockStatus) {
+    // 低库存情况
+    if (currentStockStatus === 'instock' && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD) {
+      // 如果 WC 库存数量与本地一致，显示已同步
+      if (wcStockQuantity !== undefined && wcStockQuantity === netStock) {
+        return `已同步(${netStock})`;
+      }
+      return `同步数量(${netStock})`;
+    }
+    if (currentStockStatus === 'instock' && netStock <= 0) return '同步为无货';
+    if (currentStockStatus === 'outofstock' && netStock > 0) return '同步为有货';
     return currentStockStatus === 'instock' ? '同步为无货' : '同步为有货';
   }
-  
+
   // 兼容旧的逻辑（基于建议）
   if (isOnline && netStock <= 0) return '同步为无货';
+  if (isOnline && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD) return `同步数量(${netStock})`;
   if (!isOnline && netStock > 0) return '同步为有货';
   return isOnline ? '同步为无货' : '同步为有货';
+};
+
+// 判断是否需要同步具体库存数量（而不是状态切换）
+export const shouldSyncQuantity = (stockStatus: string | undefined, netStock: number): boolean => {
+  return stockStatus === 'instock' && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD;
 };
 
 // 在合并前过滤掉要排除的仓库
@@ -230,11 +260,11 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
       // 优化仓库显示：超过1个仓库时简化显示
       let warehouseDisplay: string;
       if (warehouseCount === 1) {
-        warehouseDisplay = warehouseList[0];
+        warehouseDisplay = warehouseList[0] ?? '';
       } else if (warehouseCount === 2) {
         warehouseDisplay = `多仓库 (${warehouseList.join(', ')})`;
       } else {
-        const firstOne = warehouseList[0];
+        const firstOne = warehouseList[0] ?? '';
         warehouseDisplay = `多仓库 (${firstOne} 等${warehouseCount}个)`;
       }
       
