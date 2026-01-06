@@ -246,6 +246,7 @@ export async function GET(request: NextRequest) {
   const slotIndex = slotParam !== null ? parseInt(slotParam, 10) : null;
   const batchId = generateBatchId(slotIndex); // 批次号：同一轮同步共享
   let siteId = request.nextUrl.searchParams.get('site_id');
+  let totalConfiguredSites = 0; // 本批次配置的站点总数
   const startedAt = new Date().toISOString();
 
   console.log(`[SingleSite ${batchId}] 开始单站点同步, slot=${slotParam}, site_id=${siteId}`);
@@ -282,6 +283,7 @@ export async function GET(request: NextRequest) {
         config.site_ids?.includes(site.id)
       );
 
+      totalConfiguredSites = configuredSites.length; // 保存站点总数用于通知
       console.log(`[SingleSite ${batchId}] 动态分配: slot=${slotIndex}, 配置站点数=${configuredSites.length}`);
 
       // 检查 slot 是否有对应站点
@@ -664,7 +666,7 @@ export async function GET(request: NextRequest) {
           `**批次号**: ${batchId}`,
           `**开始时间**: ${startTimeBeijing}`,
           `**站点**: ${site.name}`,
-          `**槽位**: ${slotParam !== null ? `slot ${slotParam}` : '手动触发'}`,
+          `**槽位**: ${slotParam !== null ? `${Number(slotParam) + 1}/${totalConfiguredSites}` : '手动触发'}`,
           `**状态**: ${statusText}`,
           `**检测 SKU**: ${inventoryData.length}`,
           `**同步有货**: <font color="info">+${syncedToInstock}</font>`,
