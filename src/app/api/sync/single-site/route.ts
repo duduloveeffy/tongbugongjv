@@ -209,20 +209,52 @@ async function syncSku(
   }
 }
 
+/**
+ * 生成批次号（基于 slot=0 的触发时间，同一轮同步共享同一批次号）
+ *
+ * 原理：根据当前时间和 slot 号，反推 slot=0 的触发时间
+ * - slot=0 在 :00 触发，slot=1 在 :05 触发，以此类推
+ * - 无论站点多少，同一轮同步的所有站点都使用相同的批次号
+ *
+ * @param slotIndex 当前槽位号，如果是手动触发则为 null
+ * @returns 批次号，格式如 2026010614（北京时间）
+ */
+function generateBatchId(slotIndex: number | null): string {
+  const now = new Date();
+
+  if (slotIndex !== null && slotIndex >= 0) {
+    // Cron 触发：反推 slot=0 的触发时间
+    // slot=0 在 :00，slot=1 在 :05，...，slot=11 在 :55
+    // slot=12 在 :02，slot=13 在 :07，...（第二轮）
+    const minutesFromSlot0 = slotIndex * 5;
+    const slot0Time = new Date(now.getTime() - minutesFromSlot0 * 60 * 1000);
+    // 向下取整到整点
+    slot0Time.setMinutes(0, 0, 0);
+    // 转北京时间
+    const beijingTime = new Date(slot0Time.getTime() + 8 * 60 * 60 * 1000);
+    return beijingTime.toISOString().slice(0, 13).replace(/[-T]/g, '');
+  } else {
+    // 手动触发：使用当前时间的整点
+    const beijingTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    return 'M' + beijingTime.toISOString().slice(0, 16).replace(/[-T:]/g, '');
+  }
+}
+
 // GET: Cron 触发，支持 slot（动态）或 site_id（兼容旧版）参数
 export async function GET(request: NextRequest) {
-  const logId = crypto.randomUUID().slice(0, 8);
   const slotParam = request.nextUrl.searchParams.get('slot');
+  const slotIndex = slotParam !== null ? parseInt(slotParam, 10) : null;
+  const batchId = generateBatchId(slotIndex); // 批次号：同一轮同步共享
   let siteId = request.nextUrl.searchParams.get('site_id');
   const startedAt = new Date().toISOString();
 
-  console.log(`[SingleSite ${logId}] 开始单站点同步, slot=${slotParam}, site_id=${siteId}`);
+  console.log(`[SingleSite ${batchId}] 开始单站点同步, slot=${slotParam}, site_id=${siteId}`);
 
   try {
     // 1. 检查自动同步是否启用
     const config = await getAutoSyncConfigAsync();
     if (!config.enabled) {
-      console.log(`[SingleSite ${logId}] 自动同步已禁用`);
+      console.log(`[SingleSite ${batchId}] 自动同步已禁用`);
       return NextResponse.json({ success: true, message: '自动同步已禁用', skipped: true });
     }
 
@@ -241,7 +273,7 @@ export async function GET(request: NextRequest) {
         .order('created_at', { ascending: true });
 
       if (sitesError) {
-        console.error(`[SingleSite ${logId}] 查询站点失败:`, sitesError);
+        console.error(`[SingleSite ${batchId}] 查询站点失败:`, sitesError);
         return NextResponse.json({ success: false, error: '查询站点失败' }, { status: 500 });
       }
 
@@ -250,11 +282,11 @@ export async function GET(request: NextRequest) {
         config.site_ids?.includes(site.id)
       );
 
-      console.log(`[SingleSite ${logId}] 动态分配: slot=${slotIndex}, 配置站点数=${configuredSites.length}`);
+      console.log(`[SingleSite ${batchId}] 动态分配: slot=${slotIndex}, 配置站点数=${configuredSites.length}`);
 
       // 检查 slot 是否有对应站点
       if (slotIndex >= configuredSites.length) {
-        console.log(`[SingleSite ${logId}] slot ${slotIndex} 无对应站点 (共 ${configuredSites.length} 个站点)`);
+        console.log(`[SingleSite ${batchId}] slot ${slotIndex} 无对应站点 (共 ${configuredSites.length} 个站点)`);
         return NextResponse.json({
           success: true,
           message: `slot ${slotIndex} 无对应站点`,
@@ -270,7 +302,7 @@ export async function GET(request: NextRequest) {
       }
 
       siteId = targetSite.id;
-      console.log(`[SingleSite ${logId}] slot ${slotIndex} → 站点 ${targetSite.name} (${siteId})`);
+      console.log(`[SingleSite ${batchId}] slot ${slotIndex} → 站点 ${targetSite.name} (${siteId})`);
     }
 
     // 参数验证
@@ -280,7 +312,7 @@ export async function GET(request: NextRequest) {
 
     // 1.2 检查站点是否在配置的同步列表中（兼容直接使用 site_id 的情况）
     if (!config.site_ids || !config.site_ids.includes(siteId)) {
-      console.log(`[SingleSite ${logId}] 站点 ${siteId} 不在同步列表中，跳过`);
+      console.log(`[SingleSite ${batchId}] 站点 ${siteId} 不在同步列表中，跳过`);
       return NextResponse.json({ success: true, message: '站点未启用自动同步', skipped: true });
     }
 
@@ -292,7 +324,7 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (siteError || !site) {
-      console.error(`[SingleSite ${logId}] 站点不存在: ${siteId}`);
+      console.error(`[SingleSite ${batchId}] 站点不存在: ${siteId}`);
       return NextResponse.json({ success: false, error: '站点不存在' }, { status: 404 });
     }
 
@@ -312,14 +344,14 @@ export async function GET(request: NextRequest) {
       excludeWarehouses: siteFiltersData?.exclude_warehouses || globalFilters.excludeWarehouses || '',
     };
 
-    console.log(`[SingleSite ${logId}] 筛选配置: SKU白名单=${mergedFilters.skuFilter ? '有' : '无'}, 排除前缀=${mergedFilters.excludeSkuPrefixes ? '有' : '无'}, 品类=${mergedFilters.categoryFilters.length > 0 ? mergedFilters.categoryFilters.join(',') : '全部'}, 排除仓库=${mergedFilters.excludeWarehouses || '无'}`);
+    console.log(`[SingleSite ${batchId}] 筛选配置: SKU白名单=${mergedFilters.skuFilter ? '有' : '无'}, 排除前缀=${mergedFilters.excludeSkuPrefixes ? '有' : '无'}, 品类=${mergedFilters.categoryFilters.length > 0 ? mergedFilters.categoryFilters.join(',') : '全部'}, 排除仓库=${mergedFilters.excludeWarehouses || '无'}`);
 
     if (!site.enabled) {
-      console.log(`[SingleSite ${logId}] 站点 ${site.name} 已禁用`);
+      console.log(`[SingleSite ${batchId}] 站点 ${site.name} 已禁用`);
       return NextResponse.json({ success: true, message: `站点 ${site.name} 已禁用`, skipped: true });
     }
 
-    console.log(`[SingleSite ${logId}] 同步站点: ${site.name}`);
+    console.log(`[SingleSite ${batchId}] 同步站点: ${site.name}`);
 
     // 3. 拉取 ERP 数据
     const engineCode = env.H3YUN_ENGINE_CODE;
@@ -338,9 +370,9 @@ export async function GET(request: NextRequest) {
     };
 
     const client = createH3YunClient(h3yunConfig);
-    console.log(`[SingleSite ${logId}] 拉取 ERP 数据...`);
+    console.log(`[SingleSite ${batchId}] 拉取 ERP 数据...`);
     const h3yunData = await client.fetchAllInventory(500);
-    console.log(`[SingleSite ${logId}] 获取 ${h3yunData.length} 条 ERP 记录`);
+    console.log(`[SingleSite ${batchId}] 获取 ${h3yunData.length} 条 ERP 记录`);
 
     // 4. 获取仓库映射并转换数据
     const warehouseIds = extractUniqueWarehouses(h3yunData);
@@ -366,12 +398,12 @@ export async function GET(request: NextRequest) {
         const warehouse = (item.仓库 || '').toLowerCase();
         return !excludeWarehouseList.some((exc: string) => warehouse.includes(exc));
       });
-      console.log(`[SingleSite ${logId}] 仓库排除: ${beforeCount} → ${rawInventoryData.length} 条 (排除: ${excludeWarehouseList.join(',')})`);
+      console.log(`[SingleSite ${batchId}] 仓库排除: ${beforeCount} → ${rawInventoryData.length} 条 (排除: ${excludeWarehouseList.join(',')})`);
     }
 
     // 5. 合并仓库
     let inventoryData = mergeWarehouseData(rawInventoryData);
-    console.log(`[SingleSite ${logId}] 合并后 ${inventoryData.length} 条记录`);
+    console.log(`[SingleSite ${batchId}] 合并后 ${inventoryData.length} 条记录`);
 
     // 5.1 应用品类筛选（使用 includes 模糊匹配，与手动同步一致）
     if (mergedFilters.categoryFilters.length > 0) {
@@ -384,7 +416,7 @@ export async function GET(request: NextRequest) {
                  (item.三级品类 || '').toLowerCase().includes(filterLower);
         });
       });
-      console.log(`[SingleSite ${logId}] 品类筛选: ${beforeCount} → ${inventoryData.length} 条 (品类: ${mergedFilters.categoryFilters.join(',')})`);
+      console.log(`[SingleSite ${batchId}] 品类筛选: ${beforeCount} → ${inventoryData.length} 条 (品类: ${mergedFilters.categoryFilters.join(',')})`);
     }
 
     // 5.2 应用 SKU 白名单筛选（同时匹配产品代码和产品名称，与手动同步一致）
@@ -401,7 +433,7 @@ export async function GET(request: NextRequest) {
           sku.includes(filter) || name.includes(filter)
         );
       });
-      console.log(`[SingleSite ${logId}] SKU白名单: ${beforeCount} → ${inventoryData.length} 条`);
+      console.log(`[SingleSite ${batchId}] SKU白名单: ${beforeCount} → ${inventoryData.length} 条`);
     }
 
     // 5.3 应用 SKU 前缀排除
@@ -415,39 +447,39 @@ export async function GET(request: NextRequest) {
         const sku = item.产品代码.toLowerCase();
         return !excludeList.some((prefix: string) => sku.startsWith(prefix));
       });
-      console.log(`[SingleSite ${logId}] SKU前缀排除: ${beforeCount} → ${inventoryData.length} 条 (排除: ${excludeList.slice(0, 5).join(',')}${excludeList.length > 5 ? '...' : ''})`);
+      console.log(`[SingleSite ${batchId}] SKU前缀排除: ${beforeCount} → ${inventoryData.length} 条 (排除: ${excludeList.slice(0, 5).join(',')}${excludeList.length > 5 ? '...' : ''})`);
     }
 
     // 6. 加载 SKU 映射
-    console.log(`[SingleSite ${logId}] 开始加载 SKU 映射...`);
+    console.log(`[SingleSite ${batchId}] 开始加载 SKU 映射...`);
     let skuMappings: Record<string, string[]> = {};
     try {
       const mappingData = await client.fetchSkuMappings();
-      console.log(`[SingleSite ${logId}] 获取到 ${mappingData?.length || 0} 条映射原始数据`);
+      console.log(`[SingleSite ${batchId}] 获取到 ${mappingData?.length || 0} 条映射原始数据`);
       if (mappingData && mappingData.length > 0) {
-        console.log(`[SingleSite ${logId}] 开始构建映射索引...`);
+        console.log(`[SingleSite ${batchId}] 开始构建映射索引...`);
         const mappingIndex = buildMappingIndex(mappingData);
-        console.log(`[SingleSite ${logId}] 映射索引构建完成，开始转换为字典...`);
+        console.log(`[SingleSite ${batchId}] 映射索引构建完成，开始转换为字典...`);
         for (const [h3yunSku, relations] of mappingIndex.h3yunToWoo.entries()) {
           skuMappings[h3yunSku] = relations.map(r => r.woocommerceSku);
         }
-        console.log(`[SingleSite ${logId}] SKU 映射加载完成: ${Object.keys(skuMappings).length} 个映射`);
+        console.log(`[SingleSite ${batchId}] SKU 映射加载完成: ${Object.keys(skuMappings).length} 个映射`);
       } else {
-        console.log(`[SingleSite ${logId}] 没有 SKU 映射数据`);
+        console.log(`[SingleSite ${batchId}] 没有 SKU 映射数据`);
       }
     } catch (error) {
-      console.warn(`[SingleSite ${logId}] SKU 映射加载失败:`, error);
+      console.warn(`[SingleSite ${batchId}] SKU 映射加载失败:`, error);
     }
 
     // 7. 获取产品缓存状态
-    console.log(`[SingleSite ${logId}] 开始查询产品缓存...`);
+    console.log(`[SingleSite ${batchId}] 开始查询产品缓存...`);
     const { data: productCache, error: cacheError } = await supabase
       .from('products')
       .select('sku, stock_status')
       .eq('site_id', siteId);
 
     if (cacheError) {
-      console.error(`[SingleSite ${logId}] 产品缓存查询失败:`, cacheError);
+      console.error(`[SingleSite ${batchId}] 产品缓存查询失败:`, cacheError);
     }
 
     const productStatus = new Map<string, string>();
@@ -455,10 +487,10 @@ export async function GET(request: NextRequest) {
       if (p.sku) productStatus.set(p.sku, p.stock_status);
     });
 
-    console.log(`[SingleSite ${logId}] 产品缓存: ${productStatus.size} 个`);
+    console.log(`[SingleSite ${batchId}] 产品缓存: ${productStatus.size} 个`);
 
     // 8. 执行同步
-    console.log(`[SingleSite ${logId}] 同步配置: sync_to_instock=${config.sync_to_instock}, sync_to_outofstock=${config.sync_to_outofstock}`);
+    console.log(`[SingleSite ${batchId}] 同步配置: sync_to_instock=${config.sync_to_instock}, sync_to_outofstock=${config.sync_to_outofstock}`);
 
     let syncedToInstock = 0;
     let syncedToOutofstock = 0;
@@ -472,7 +504,7 @@ export async function GET(request: NextRequest) {
       const inInventory = inventoryData.find(i => i.产品代码 === debugSku);
       const inMapping = skuMappings[debugSku];
       const inCache = productStatus.get(debugSku);
-      console.log(`[SingleSite ${logId}] 诊断 ${debugSku}: 库存=${inInventory ? calculateNetStock(inInventory) : '无'}, 映射=${inMapping ? inMapping.join(',') : '无'}, 缓存状态=${inCache || '无'}`);
+      console.log(`[SingleSite ${batchId}] 诊断 ${debugSku}: 库存=${inInventory ? calculateNetStock(inInventory) : '无'}, 映射=${inMapping ? inMapping.join(',') : '无'}, 缓存状态=${inCache || '无'}`);
     }
 
     for (const item of inventoryData) {
@@ -503,7 +535,7 @@ export async function GET(request: NextRequest) {
 
         // 诊断：记录 SU-01 相关的处理
         if (sku === 'SU-01' || wooSku === 'VS2-01' || wooSku === 'VS5-01') {
-          console.log(`[SingleSite ${logId}] 处理 ${sku}→${wooSku}: 净库存=${netStock}, WC状态=${currentStatus}, 需同步=${needSync}, 目标=${targetStatus}`);
+          console.log(`[SingleSite ${batchId}] 处理 ${sku}→${wooSku}: 净库存=${netStock}, WC状态=${currentStatus}, 需同步=${needSync}, 目标=${targetStatus}`);
         }
 
         if (!needSync || !targetStatus) {
@@ -522,11 +554,11 @@ export async function GET(request: NextRequest) {
             syncedToOutofstock++;
             details.push({ sku: wooSku, action: 'to_outofstock' });
           }
-          console.log(`[SingleSite ${logId}] ${wooSku} → ${targetStatus} ✓`);
+          console.log(`[SingleSite ${batchId}] ${wooSku} → ${targetStatus} ✓`);
         } else {
           failed++;
           details.push({ sku: wooSku, action: 'failed', error: result.error });
-          console.error(`[SingleSite ${logId}] ${wooSku} 同步失败: ${result.error}`);
+          console.error(`[SingleSite ${batchId}] ${wooSku} 同步失败: ${result.error}`);
         }
       }
     }
@@ -574,7 +606,7 @@ export async function GET(request: NextRequest) {
           notification_error: null,
         });
     } catch (logError) {
-      console.warn(`[SingleSite ${logId}] 记录日志失败:`, logError);
+      console.warn(`[SingleSite ${batchId}] 记录日志失败:`, logError);
     }
 
     // 11. 更新 auto_sync_config 的上次运行信息
@@ -596,11 +628,11 @@ export async function GET(request: NextRequest) {
         })
         .eq('name', 'default');
     } catch (configError) {
-      console.warn(`[SingleSite ${logId}] 更新配置失败:`, configError);
+      console.warn(`[SingleSite ${batchId}] 更新配置失败:`, configError);
     }
 
     // 12. 发送企业微信通知
-    console.log(`[SingleSite ${logId}] 企业微信通知配置: webhook=${config.wechat_webhook_url ? '已配置' : '未配置'}, notify_on_success=${config.notify_on_success}, notify_on_failure=${config.notify_on_failure}, notify_on_no_changes=${config.notify_on_no_changes}, status=${status}`);
+    console.log(`[SingleSite ${batchId}] 企业微信通知配置: webhook=${config.wechat_webhook_url ? '已配置' : '未配置'}, notify_on_success=${config.notify_on_success}, notify_on_failure=${config.notify_on_failure}, notify_on_no_changes=${config.notify_on_no_changes}, status=${status}`);
 
     if (config.wechat_webhook_url) {
       const statusStr = status as string;
@@ -610,7 +642,7 @@ export async function GET(request: NextRequest) {
         (config.notify_on_failure && isFailure) ||
         (config.notify_on_no_changes && statusStr === 'no_changes');
 
-      console.log(`[SingleSite ${logId}] shouldNotify=${shouldNotify}`);
+      console.log(`[SingleSite ${batchId}] shouldNotify=${shouldNotify}`);
 
       if (shouldNotify) {
         const durationSec = ((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000).toFixed(1);
@@ -629,7 +661,7 @@ export async function GET(request: NextRequest) {
         const outofstockSkus = details.filter(d => d.action === 'to_outofstock').map(d => d.sku);
 
         const notificationContent = [
-          `**批次号**: ${logId}`,
+          `**批次号**: ${batchId}`,
           `**开始时间**: ${startTimeBeijing}`,
           `**站点**: ${site.name}`,
           `**状态**: ${statusText}`,
@@ -653,14 +685,14 @@ export async function GET(request: NextRequest) {
 
         // 更新通知状态到日志
         if (notificationSent) {
-          console.log(`[SingleSite ${logId}] 企业微信通知发送成功`);
+          console.log(`[SingleSite ${batchId}] 企业微信通知发送成功`);
         } else {
-          console.warn(`[SingleSite ${logId}] 企业微信通知发送失败`);
+          console.warn(`[SingleSite ${batchId}] 企业微信通知发送失败`);
         }
       }
     }
 
-    console.log(`[SingleSite ${logId}] 完成:`, summary);
+    console.log(`[SingleSite ${batchId}] 完成:`, summary);
 
     return NextResponse.json({
       success: true,
@@ -669,7 +701,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error(`[SingleSite ${logId}] 错误:`, error);
+    console.error(`[SingleSite ${batchId}] 错误:`, error);
 
     // 记录失败日志
     try {
