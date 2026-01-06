@@ -39,11 +39,11 @@ export async function GET() {
       }, { status: 200 });
     }
 
-    // 1. 获取所有站点
+    // 1. 获取所有站点（按 created_at 升序排序，与后端槽位分配逻辑一致）
     const { data: sites, error } = await supabase
       .from('wc_sites')
       .select('id, name, url, api_key, api_secret, enabled, created_at, updated_at, last_sync_at')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true });
 
     if (error) {
       console.error('Failed to fetch sites:', error);

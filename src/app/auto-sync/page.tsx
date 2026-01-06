@@ -90,25 +90,23 @@ interface SyncLog {
   error_message: string | null;
 }
 
-// 站点定时任务配置（每小时错峰运行，分钟数）
-const SITE_SCHEDULES: Record<string, string> = {
-  '7e8da05b-290d-48f2-b5c5-904fe81ad3db': ':00',
-  'bd4589cc-29d7-4483-8aa5-f4b46669908c': ':05',
-  '6cbbbdc3-aa62-4e2b-9b58-dced82de76dc': ':10',
-  'e7f7e121-8c41-40ed-be10-8ae7fddb1caf': ':15',
-  '43e95442-8537-4697-af83-d81a6aa7d238': ':20',
-  '547e7d5c-5b14-42b9-904d-94437e67f820': ':25',
-  '7f73b272-2537-43c7-914d-4564116b76f9': ':30',
-  '57568bb9-4988-4778-adc9-9820c240d669': ':35',
-  'a2b7a045-d389-4f3f-a632-71e0344c4d18': ':40',
-  'b08bc00a-a655-45bb-99d6-a672c7133fb0': ':45',
-  'dd2c8c53-a7e3-4959-88f3-fffdece6e16f': ':50',
-  '3c82945d-ac75-462e-b018-0898fbaa31c3': ':55',
-  '88882566-2e23-4062-ae9e-3a7907cf4f11': ':02',
-  'bad1ba8b-4a06-4977-a398-0798fe376195': ':07',
-  '4fcb9c7d-e546-4ff7-aa10-894b5bd81b42': ':12',
-  'b061f0b2-d2be-47de-8c8b-04bf92d2dcdd': ':17',
-};
+// 槽位时间表（slot 0-15 对应的分钟数）
+const SLOT_SCHEDULES = [
+  ':00', ':05', ':10', ':15', ':20', ':25', ':30', ':35',
+  ':40', ':45', ':50', ':55', ':02', ':07', ':12', ':17',
+];
+
+// 根据站点在已选列表中的位置计算槽位时间
+function getSiteSchedule(siteId: string, sites: Site[], selectedSiteIds: string[]): string | null {
+  // 筛选出启用且已选择的站点（API 返回时已按 created_at 排序）
+  const enabledSelectedSites = sites.filter(s => s.enabled && selectedSiteIds.includes(s.id));
+
+  const slotIndex = enabledSelectedSites.findIndex(s => s.id === siteId);
+  if (slotIndex === -1 || slotIndex >= SLOT_SCHEDULES.length) {
+    return null;
+  }
+  return SLOT_SCHEDULES[slotIndex] ?? null;
+}
 
 export default function AutoSyncPage() {
   const [config, setConfig] = useState<AutoSyncConfig | null>(null);
@@ -449,14 +447,14 @@ export default function AutoSyncPage() {
               </Button>
             </div>
             <CardDescription>
-              每小时自动执行，每个站点错峰 5 分钟独立运行（UTC 时间）
+              每小时自动执行，站点按创建时间排序分配槽位，每个槽位间隔 5 分钟（UTC 时间）
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* 站点定时任务列表 */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
               {sites.map((site) => {
-                const schedule = SITE_SCHEDULES[site.id];
+                const schedule = getSiteSchedule(site.id, sites, config?.site_ids ?? []);
                 const isCurrentlySyncing = syncingSiteId === site.id;
                 const lastSync = site.last_sync_at ? new Date(site.last_sync_at) : null;
                 const isToday = lastSync && lastSync.toDateString() === new Date().toDateString();
@@ -628,7 +626,7 @@ export default function AutoSyncPage() {
               <Badge variant="outline" className="ml-2">{sites.filter(s => config.site_ids.includes(s.id)).length}/{sites.length} 已选择</Badge>
             </CardTitle>
             <CardDescription>
-              选择要同步的站点并配置各站点的独立过滤规则（留空则使用下方全局配置）
+              勾选要同步的站点，槽位按站点创建时间顺序自动分配（留空过滤规则则使用下方全局配置）
             </CardDescription>
           </CardHeader>
           <CardContent>
