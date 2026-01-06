@@ -666,7 +666,7 @@ export async function GET(request: NextRequest) {
           `**批次号**: ${batchId}`,
           `**开始时间**: ${startTimeBeijing}`,
           `**站点**: ${site.name}`,
-          `**槽位**: ${slotParam !== null ? `${Number(slotParam) + 1}/${totalConfiguredSites}` : '手动触发'}`,
+          `**槽位**: ${slotParam !== null ? `${slotParam}/${totalConfiguredSites}` : '手动触发'}`,
           `**状态**: ${statusText}`,
           `**检测 SKU**: ${inventoryData.length}`,
           `**同步有货**: <font color="info">+${syncedToInstock}</font>`,
@@ -691,6 +691,69 @@ export async function GET(request: NextRequest) {
           console.log(`[SingleSite ${batchId}] 企业微信通知发送成功`);
         } else {
           console.warn(`[SingleSite ${batchId}] 企业微信通知发送失败`);
+        }
+      }
+
+      // 13. 本轮同步总结通知（最后一个站点完成时发送）
+      const isLastSlot = slotParam !== null && Number(slotParam) === totalConfiguredSites - 1;
+      if (isLastSlot && config.notify_on_success) {
+        console.log(`[SingleSite ${batchId}] 最后一个站点完成，发送本轮总结通知`);
+
+        // 查询本批次所有站点的同步日志（通过时间范围匹配同一批次）
+        // 批次开始时间 = slot=0 触发时间，结束时间 = 当前时间
+        const batchStartTime = new Date();
+        batchStartTime.setMinutes(0, 0, 0); // 本小时整点
+
+        const { data: batchLogs } = await supabase
+          .from('auto_sync_logs')
+          .select('*')
+          .gte('started_at', batchStartTime.toISOString())
+          .lte('completed_at', completedAt)
+          .order('started_at', { ascending: true });
+
+        if (batchLogs && batchLogs.length > 0) {
+          // 汇总统计
+          const totalSites = batchLogs.length;
+          const successCount = batchLogs.filter(l => l.status === 'success' || l.status === 'no_changes').length;
+          const failedCount = batchLogs.filter(l => l.status === 'failed' || l.status === 'partial').length;
+          const totalChecked = batchLogs.reduce((sum, l) => sum + (l.total_skus_checked || 0), 0);
+          const totalToInstock = batchLogs.reduce((sum, l) => sum + (l.skus_synced_to_instock || 0), 0);
+          const totalToOutofstock = batchLogs.reduce((sum, l) => sum + (l.skus_synced_to_outofstock || 0), 0);
+          const totalFailed = batchLogs.reduce((sum, l) => sum + (l.skus_failed || 0), 0);
+
+          // 计算总耗时（从第一个站点开始到最后一个站点结束）
+          const firstStartTime = new Date(batchLogs[0].started_at).getTime();
+          const lastEndTime = new Date(completedAt).getTime();
+          const totalDurationSec = ((lastEndTime - firstStartTime) / 1000).toFixed(1);
+
+          // 站点明细
+          const siteDetails = batchLogs.map(log => {
+            const siteName = log.sites_processed ? Object.keys(log.sites_processed)[0] : '未知';
+            const statusIcon = log.status === 'success' ? '✅' :
+                              log.status === 'no_changes' ? '➖' : '❌';
+            return `${statusIcon} ${siteName}: +${log.skus_synced_to_instock || 0}/-${log.skus_synced_to_outofstock || 0}`;
+          }).join('\n> ');
+
+          const summaryContent = [
+            `**批次号**: ${batchId}`,
+            `**站点数**: ${totalSites}/${totalConfiguredSites}`,
+            `**成功/失败**: ${successCount}/${failedCount}`,
+            `**检测 SKU**: ${totalChecked}`,
+            `**同步有货**: <font color="info">+${totalToInstock}</font>`,
+            `**同步无货**: <font color="warning">-${totalToOutofstock}</font>`,
+            totalFailed > 0 ? `**失败**: <font color="warning">${totalFailed}</font>` : '',
+            `**总耗时**: ${totalDurationSec}秒`,
+            `\n> **站点明细**:\n> ${siteDetails}`,
+          ].filter(Boolean).join('\n');
+
+          const allSuccess = failedCount === 0;
+          await sendWechatNotification(
+            config.wechat_webhook_url,
+            `本轮同步总结`,
+            summaryContent,
+            allSuccess
+          );
+          console.log(`[SingleSite ${batchId}] 本轮总结通知已发送`);
         }
       }
     }
