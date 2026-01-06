@@ -554,10 +554,12 @@ export async function GET(request: NextRequest) {
     console.log(`[SingleSite ${logId}] 企业微信通知配置: webhook=${config.wechat_webhook_url ? '已配置' : '未配置'}, notify_on_success=${config.notify_on_success}, notify_on_failure=${config.notify_on_failure}, notify_on_no_changes=${config.notify_on_no_changes}, status=${status}`);
 
     if (config.wechat_webhook_url) {
+      const statusStr = status as string;
+      const isFailure = statusStr === 'partial' || statusStr === 'failed';
       const shouldNotify =
-        (config.notify_on_success && status === 'success') ||
-        (config.notify_on_failure && (status === 'partial' || status === 'failed')) ||
-        (config.notify_on_no_changes && status === 'no_changes');
+        (config.notify_on_success && statusStr === 'success') ||
+        (config.notify_on_failure && isFailure) ||
+        (config.notify_on_no_changes && statusStr === 'no_changes');
 
       console.log(`[SingleSite ${logId}] shouldNotify=${shouldNotify}`);
 
@@ -567,7 +569,19 @@ export async function GET(request: NextRequest) {
                           status === 'partial' ? '部分失败' :
                           status === 'no_changes' ? '无变化' : '失败';
 
+        // 格式化开始时间（北京时间）
+        const startTimeBeijing = new Date(new Date(startedAt).getTime() + 8 * 60 * 60 * 1000)
+          .toISOString()
+          .replace('T', ' ')
+          .slice(0, 19);
+
+        // 提取同步的 SKU 列表
+        const instockSkus = details.filter(d => d.action === 'to_instock').map(d => d.sku);
+        const outofstockSkus = details.filter(d => d.action === 'to_outofstock').map(d => d.sku);
+
         const notificationContent = [
+          `**批次号**: ${logId}`,
+          `**开始时间**: ${startTimeBeijing}`,
           `**站点**: ${site.name}`,
           `**状态**: ${statusText}`,
           `**检测 SKU**: ${inventoryData.length}`,
@@ -575,6 +589,9 @@ export async function GET(request: NextRequest) {
           `**同步无货**: <font color="warning">+${syncedToOutofstock}</font>`,
           failed > 0 ? `**失败**: <font color="warning">${failed}</font>` : '',
           `**耗时**: ${durationSec}秒`,
+          // 显示具体 SKU（最多显示 10 个）
+          instockSkus.length > 0 ? `\n> 🟢 **有货 SKU**: ${instockSkus.slice(0, 10).join(', ')}${instockSkus.length > 10 ? ` ...等${instockSkus.length}个` : ''}` : '',
+          outofstockSkus.length > 0 ? `> 🔴 **无货 SKU**: ${outofstockSkus.slice(0, 10).join(', ')}${outofstockSkus.length > 10 ? ` ...等${outofstockSkus.length}个` : ''}` : '',
         ].filter(Boolean).join('\n');
 
         const isSuccess = status === 'success' || status === 'no_changes';
