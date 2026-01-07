@@ -69,6 +69,55 @@ interface InventoryItem {
   [key: string]: string | number | boolean | object | undefined;
 }
 
+// 同步规则接口
+interface SyncRules {
+  sku_warehouse_rules?: Record<string, string[]>; // SKU前缀 → 允许的仓库列表
+  instock_threshold?: Record<string, number>;     // SKU前缀 → 有货阈值
+}
+
+/**
+ * 检查 SKU 是否匹配规则模式
+ * 支持通配符 * 作为后缀匹配
+ * 例如: "JNR1802*" 匹配 "JNR1802", "JNR1802A", "JNR1802-123" 等
+ */
+function matchSkuPattern(sku: string, pattern: string): boolean {
+  if (pattern.endsWith('*')) {
+    const prefix = pattern.slice(0, -1);
+    return sku.toUpperCase().startsWith(prefix.toUpperCase());
+  }
+  return sku.toUpperCase() === pattern.toUpperCase();
+}
+
+/**
+ * 获取 SKU 匹配的仓库规则
+ * @returns 允许的仓库列表，如果没有匹配规则则返回 null（表示不限制）
+ */
+function getSkuWarehouseRule(sku: string, rules: SyncRules): string[] | null {
+  if (!rules.sku_warehouse_rules) return null;
+
+  for (const [pattern, warehouses] of Object.entries(rules.sku_warehouse_rules)) {
+    if (matchSkuPattern(sku, pattern)) {
+      return warehouses;
+    }
+  }
+  return null;
+}
+
+/**
+ * 获取 SKU 的有货阈值
+ * @returns 自定义阈值，如果没有匹配规则则返回 0（默认：库存>0 即为有货）
+ */
+function getSkuInstockThreshold(sku: string, rules: SyncRules): number {
+  if (!rules.instock_threshold) return 0;
+
+  for (const [pattern, threshold] of Object.entries(rules.instock_threshold)) {
+    if (matchSkuPattern(sku, pattern)) {
+      return threshold;
+    }
+  }
+  return 0;
+}
+
 // 合并仓库数据
 function mergeWarehouseData(data: InventoryItem[]): InventoryItem[] {
   const grouped = new Map<string, InventoryItem[]>();
@@ -348,10 +397,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: '站点不存在' }, { status: 404 });
     }
 
-    // 2.1 获取站点筛选配置（从 site_filters 表）
+    // 2.1 获取站点筛选配置（从 site_filters 表，包含同步规则）
     const { data: siteFiltersData } = await supabase
       .from('site_filters')
-      .select('sku_filter, exclude_sku_prefixes, category_filters, exclude_warehouses')
+      .select('sku_filter, exclude_sku_prefixes, category_filters, exclude_warehouses, sync_rules')
       .eq('site_id', siteId)
       .single();
 
@@ -407,7 +456,34 @@ export async function GET(request: NextRequest) {
 
     let rawInventoryData = transformResult.data as InventoryItem[];
 
-    // 4.1 应用仓库排除（在合并前）
+    // 4.1 解析同步规则
+    const syncRules: SyncRules = siteFiltersData?.sync_rules || {};
+    const hasSkuWarehouseRules = syncRules.sku_warehouse_rules && Object.keys(syncRules.sku_warehouse_rules).length > 0;
+    const hasInstockThresholds = syncRules.instock_threshold && Object.keys(syncRules.instock_threshold).length > 0;
+
+    if (hasSkuWarehouseRules || hasInstockThresholds) {
+      console.log(`[SingleSite ${batchId}] 同步规则: 仓库规则=${hasSkuWarehouseRules ? Object.keys(syncRules.sku_warehouse_rules!).join(',') : '无'}, 阈值规则=${hasInstockThresholds ? Object.keys(syncRules.instock_threshold!).join(',') : '无'}`);
+    }
+
+    // 4.2 应用 SKU 特定仓库规则（在合并前，只保留特定 SKU 的指定仓库数据）
+    if (hasSkuWarehouseRules) {
+      const beforeCount = rawInventoryData.length;
+      rawInventoryData = rawInventoryData.filter(item => {
+        const sku = item.产品代码;
+        const allowedWarehouses = getSkuWarehouseRule(sku, syncRules);
+
+        // 如果没有匹配规则，保留所有仓库
+        if (!allowedWarehouses) return true;
+
+        // 检查当前仓库是否在允许列表中
+        const warehouse = (item.仓库 || '').toLowerCase();
+        const isAllowed = allowedWarehouses.some(w => warehouse.includes(w.toLowerCase()));
+        return isAllowed;
+      });
+      console.log(`[SingleSite ${batchId}] SKU仓库规则: ${beforeCount} → ${rawInventoryData.length} 条`);
+    }
+
+    // 4.3 应用仓库排除（在合并前）
     if (mergedFilters.excludeWarehouses.trim()) {
       const excludeWarehouseList = mergedFilters.excludeWarehouses
         .split(/[,，\n]/)
@@ -601,18 +677,26 @@ export async function GET(request: NextRequest) {
         let targetStatus: 'instock' | 'outofstock' | null = null;
         let syncStockQuantity: number | undefined = undefined; // 低库存时同步具体数量
 
-        // 判断同步条件
-        if (currentStatus === 'instock' && netStock <= 0 && config.sync_to_outofstock) {
-          // 情况1：WC有货但本地无货 → 同步为无货
+        // 获取 SKU 的自定义有货阈值（如果没有配置则为 0，即默认 >0 为有货）
+        const instockThreshold = getSkuInstockThreshold(sku, syncRules);
+        // 判断按阈值规则是否算作"有货"
+        const isInStock = netStock > instockThreshold;
+
+        // 判断同步条件（应用自定义阈值）
+        if (currentStatus === 'instock' && !isInStock && config.sync_to_outofstock) {
+          // 情况1：WC有货但本地库存不足阈值 → 同步为无货
           needSync = true;
           targetStatus = 'outofstock';
-        } else if (currentStatus === 'instock' && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD && config.sync_to_outofstock) {
-          // 情况2：WC有货但本地低库存(1-10) → 同步具体数量
-          needSync = true;
-          targetStatus = 'instock'; // 保持有货状态，但更新数量
-          syncStockQuantity = netStock;
-        } else if (currentStatus === 'outofstock' && netStock > 0 && config.sync_to_instock) {
-          // 情况3：WC无货但本地有货 → 同步为有货
+        } else if (currentStatus === 'instock' && isInStock && netStock <= LOW_STOCK_THRESHOLD && config.sync_to_outofstock) {
+          // 情况2：WC有货且本地有货但低库存(1-10) → 同步具体数量（仅针对无自定义阈值的SKU）
+          // 注意：有自定义阈值的 SKU 不做低库存数量同步，因为它们已经用阈值控制了
+          if (instockThreshold === 0) {
+            needSync = true;
+            targetStatus = 'instock'; // 保持有货状态，但更新数量
+            syncStockQuantity = netStock;
+          }
+        } else if (currentStatus === 'outofstock' && isInStock && config.sync_to_instock) {
+          // 情况3：WC无货但本地库存超过阈值 → 同步为有货
           needSync = true;
           targetStatus = 'instock';
         }
