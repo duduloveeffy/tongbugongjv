@@ -12,7 +12,7 @@ import {
   updateAutoSyncLogAsync,
   type AutoSyncLog,
 } from '@/lib/local-config-store';
-import { detectProducts } from '@/app/api/products/detect-cached/route';
+import { detectProducts } from '@/lib/product-detection';
 import { buildMappingIndex, getWooCommerceSkus, type MappingIndex } from '@/lib/h3yun/mapping-service';
 
 const supabase = createClient(

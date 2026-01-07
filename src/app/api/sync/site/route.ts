@@ -12,7 +12,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAutoSyncConfigAsync } from '@/lib/local-config-store';
-import { detectProducts } from '@/app/api/products/detect-cached/route';
+import { detectProducts } from '@/lib/product-detection';
 import { runtimeLogger } from '@/lib/runtime-logger';
 
 const supabase = createClient(

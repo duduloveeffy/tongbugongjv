@@ -14,6 +14,7 @@ import { env } from '@/env';
 import { h3yunSchemaConfig } from '@/config/h3yun.config';
 import { getAutoSyncConfigAsync } from '@/lib/local-config-store';
 import { buildMappingIndex } from '@/lib/h3yun/mapping-service';
+import { detectProducts } from '@/lib/product-detection';
 
 // 低库存阈值：当 WC 显示有货但本地净库存在 1-10 时，同步具体数量而非状态
 const LOW_STOCK_THRESHOLD = 10;
@@ -508,6 +509,59 @@ export async function GET(request: NextRequest) {
 
     console.log(`[SingleSite ${batchId}] 产品缓存: ${productStatus.size} 个`);
 
+    // 7.1 收集所有需要检测的 WooCommerce SKU
+    const allWooSkus: string[] = [];
+    for (const item of inventoryData) {
+      const sku = item.产品代码;
+      const wooSkus = skuMappings[sku] || [sku];
+      for (const wooSku of wooSkus) {
+        if (!productStatus.has(wooSku) && !allWooSkus.includes(wooSku)) {
+          allWooSkus.push(wooSku);
+        }
+      }
+    }
+
+    // 7.2 缓存未命中的 SKU，调用 WC API 查询（与手动同步一致）
+    if (allWooSkus.length > 0) {
+      console.log(`[SingleSite ${batchId}] 缓存未命中 ${allWooSkus.length} 个SKU，调用 WC API 查询...`);
+
+      // 分批处理，每批 100 个
+      const batchSize = 100;
+      for (let i = 0; i < allWooSkus.length; i += batchSize) {
+        const batch = allWooSkus.slice(i, i + batchSize);
+
+        try {
+          const detectResult = await detectProducts(
+            siteId,
+            batch,
+            site.url,
+            site.api_key,
+            site.api_secret,
+            false // 不跳过缓存，让 detectProducts 自动写入缓存
+          );
+
+          if (detectResult.success) {
+            // 将检测结果加入 productStatus Map
+            for (const product of detectResult.products) {
+              if (product.status !== 'not_found' && product.status !== 'error') {
+                productStatus.set(product.sku, product.stockStatus);
+              }
+            }
+            console.log(`[SingleSite ${batchId}] API 批次 ${Math.floor(i / batchSize) + 1}: 检测 ${batch.length} 个，命中 ${detectResult.products.filter(p => p.status !== 'not_found' && p.status !== 'error').length} 个`);
+          }
+        } catch (detectError) {
+          console.warn(`[SingleSite ${batchId}] API 检测批次失败:`, detectError);
+        }
+
+        // 批次间延迟，避免 API 限流
+        if (i + batchSize < allWooSkus.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+
+      console.log(`[SingleSite ${batchId}] API 检测完成，产品状态总数: ${productStatus.size} 个`);
+    }
+
     // 8. 执行同步
     console.log(`[SingleSite ${batchId}] 同步配置: sync_to_instock=${config.sync_to_instock}, sync_to_outofstock=${config.sync_to_outofstock}`);
 
@@ -538,6 +592,7 @@ export async function GET(request: NextRequest) {
         const currentStatus = productStatus.get(wooSku);
 
         if (!currentStatus) {
+          // 缓存和 API 都没有找到该产品，跳过
           skipped++;
           continue;
         }
