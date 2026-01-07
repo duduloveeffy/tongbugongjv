@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Loader2, Download, FileText, Printer } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { WeekPicker, type WeekValue } from '@/components/reports/WeekPicker';
+import { MonthPicker } from '@/components/reports/MonthPicker';
 import { WeekNote } from '@/components/reports/WeekNote';
 import { OverviewStats } from '@/components/reports/OverviewStats';
 import { BrandComparison } from '@/components/reports/BrandComparison';
@@ -16,44 +18,53 @@ import { DailyTrendChart } from '@/components/reports/DailyTrendChart';
 import * as XLSX from 'xlsx';
 import { startOfWeek, endOfWeek, subWeeks, format } from 'date-fns';
 
+// 汇总统计接口
+interface SummaryStats {
+  totalOrders: number;
+  totalRevenue: number;
+  totalQuantity: number;
+  avgOrderValue: number;
+}
+
+// 增长率接口
+interface GrowthStats {
+  orders: string;
+  revenue: string;
+  quantity: string;
+  avgOrderValue: string;
+}
+
 // API 响应结构
 interface ApiResponse {
   success: boolean;
   data: {
+    isMonthMode?: boolean; // 是否为月报模式
     period: {
-      current: { year: number; week: number; start: string; end: string };
-      previous: { year: number; week: number; start: string; end: string };
+      current: { year: number; week?: number; month?: number; start: string; end: string };
+      previous: { year: number; week?: number; month?: number; start: string; end: string };
+      previousYear?: { year: number; month?: number; start: string; end: string }; // 去年同月
     };
     summary: {
-      current: {
-        totalOrders: number;
-        totalRevenue: number;
-        totalQuantity: number;
-        avgOrderValue: number;
-      };
-      previous: {
-        totalOrders: number;
-        totalRevenue: number;
-        totalQuantity: number;
-        avgOrderValue: number;
-      };
-      growth: {
-        orders: string;
-        revenue: string;
-        quantity: string;
-        avgOrderValue: string;
-      };
+      current: SummaryStats;
+      previous: SummaryStats;
+      growth: GrowthStats;
+      previousYear?: SummaryStats; // 去年同月汇总
+      yearOverYearGrowth?: GrowthStats; // 同比增长率
     };
     siteTypeComparison: {
       retail: {
         current: { orders: number; revenue: number; quantity: number };
         previous: { orders: number; revenue: number; quantity: number };
         growth: { orders: string; revenue: string; quantity: string };
+        previousYear?: { orders: number; revenue: number; quantity: number };
+        yearOverYearGrowth?: { orders: string; revenue: string; quantity: string };
       };
       wholesale: {
         current: { orders: number; revenue: number; quantity: number };
         previous: { orders: number; revenue: number; quantity: number };
         growth: { orders: string; revenue: string; quantity: string };
+        previousYear?: { orders: number; revenue: number; quantity: number };
+        yearOverYearGrowth?: { orders: string; revenue: string; quantity: string };
       };
     };
     brandComparison: {
@@ -61,26 +72,36 @@ interface ApiResponse {
         current: { orders: number; revenue: number; quantity: number };
         previous: { orders: number; revenue: number; quantity: number };
         growth: { orders: string; revenue: string; quantity: string };
+        previousYear?: { orders: number; revenue: number; quantity: number };
+        yearOverYearGrowth?: { orders: string; revenue: string; quantity: string };
       };
       vapsoloRetail: {
         current: { orders: number; revenue: number; quantity: number };
         previous: { orders: number; revenue: number; quantity: number };
         growth: { orders: string; revenue: string; quantity: string };
+        previousYear?: { orders: number; revenue: number; quantity: number };
+        yearOverYearGrowth?: { orders: string; revenue: string; quantity: string };
       };
       vapsoloWholesale: {
         current: { orders: number; revenue: number; quantity: number };
         previous: { orders: number; revenue: number; quantity: number };
         growth: { orders: string; revenue: string; quantity: string };
+        previousYear?: { orders: number; revenue: number; quantity: number };
+        yearOverYearGrowth?: { orders: string; revenue: string; quantity: string };
       };
       spacexvape: {
         current: { orders: number; revenue: number; quantity: number };
         previous: { orders: number; revenue: number; quantity: number };
         growth: { orders: string; revenue: string; quantity: string };
+        previousYear?: { orders: number; revenue: number; quantity: number };
+        yearOverYearGrowth?: { orders: string; revenue: string; quantity: string };
       };
       other: {
         current: { orders: number; revenue: number; quantity: number };
         previous: { orders: number; revenue: number; quantity: number };
         growth: { orders: string; revenue: string; quantity: string };
+        previousYear?: { orders: number; revenue: number; quantity: number };
+        yearOverYearGrowth?: { orders: string; revenue: string; quantity: string };
       };
     };
     all: {
@@ -89,6 +110,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
     retail: {
       bySite: any[];
@@ -96,6 +118,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
     wholesale: {
       bySite: any[];
@@ -103,6 +126,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
     vapsoloBrand: {
       bySite: any[];
@@ -110,6 +134,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
     vapsoloRetail: {
       bySite: any[];
@@ -117,6 +142,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
     vapsoloWholesale: {
       bySite: any[];
@@ -124,6 +150,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
     spacexvapeBrand: {
       bySite: any[];
@@ -131,6 +158,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
     otherBrand: {
       bySite: any[];
@@ -138,6 +166,7 @@ interface ApiResponse {
       bySpu: any[];
       dailyTrends: any[];
       previousDailyTrends?: any[];
+      previousYearDailyTrends?: any[];
     };
   };
 }
@@ -175,32 +204,76 @@ function getDefaultWeek(): WeekValue {
 }
 
 // 周范围模式类型
-type WeekRangeMode = 'full' | 'monthly';
+type WeekRangeMode = 'full' | 'monthly' | 'month';
 
-export default function VapsoloWeeklyReport() {
+// 对比模式类型（月报模式下使用）
+type CompareMode = 'mom' | 'yoy'; // mom = month-over-month (环比), yoy = year-over-year (同比)
+
+// 获取默认月份（上月）
+function getDefaultMonth(): { year: number; month: number } {
+  const today = new Date();
+  const currentMonth = today.getMonth() + 1;
+  const currentYear = today.getFullYear();
+  if (currentMonth === 1) {
+    return { year: currentYear - 1, month: 12 };
+  }
+  return { year: currentYear, month: currentMonth - 1 };
+}
+
+interface VapsoloReportProps {
+  initialMode?: 'weekly' | 'monthly';
+}
+
+export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloReportProps) {
+  const router = useRouter();
   const [selectedWeek, setSelectedWeek] = useState<WeekValue>(getDefaultWeek());
-  const [weekRangeMode, setWeekRangeMode] = useState<WeekRangeMode>('full');
+  const [selectedMonth, setSelectedMonth] = useState(getDefaultMonth());
+  const [weekRangeMode, setWeekRangeMode] = useState<WeekRangeMode>(initialMode === 'monthly' ? 'month' : 'full');
+  const [compareMode, setCompareMode] = useState<CompareMode>('mom'); // 环比/同比切换
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState<ApiResponse['data'] | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
+  // 月报模式标识
+  const isMonthMode = weekRangeMode === 'month';
+
+  // 处理模式切换，同时更新 URL
+  const handleModeChange = (newMode: WeekRangeMode) => {
+    setWeekRangeMode(newMode);
+    // 切换到月报时跳转到 /reports/monthly，否则跳转到 /reports/weekly
+    if (newMode === 'month') {
+      router.push('/reports/monthly');
+    } else {
+      router.push('/reports/weekly');
+    }
+  };
+
   useEffect(() => {
     loadReport();
-  }, [selectedWeek, weekRangeMode]);
+  }, [selectedWeek, selectedMonth, weekRangeMode]);
 
   const loadReport = async () => {
     setLoading(true);
     try {
+      // 根据模式构建请求参数
+      const requestBody = isMonthMode
+        ? {
+            year: selectedMonth.year,
+            month: selectedMonth.month,
+            weekRangeMode: 'month' as const,
+          }
+        : {
+            year: selectedWeek.year,
+            week: selectedWeek.week,
+            startDate: selectedWeek.startDate,
+            endDate: selectedWeek.endDate,
+            weekRangeMode,
+          };
+
       const response = await fetch('/api/reports/vapsolo/weekly', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          year: selectedWeek.year,
-          week: selectedWeek.week,
-          startDate: selectedWeek.startDate,
-          endDate: selectedWeek.endDate,
-          weekRangeMode,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -421,7 +494,15 @@ export default function VapsoloWeeklyReport() {
     },
   });
 
-  // 转换数据格式以适配组件
+  // 辅助函数：获取品牌对比的增长率（根据环比/同比模式）
+  const getBrandGrowth = (brandKey: 'vapsolo' | 'vapsoloRetail' | 'vapsoloWholesale' | 'spacexvape' | 'other', metric: 'orders' | 'revenue' | 'quantity') => {
+    if (!reportData) return '0.0';
+    const brand = reportData.brandComparison[brandKey];
+    const useYoy = isMonthMode && compareMode === 'yoy';
+    return useYoy ? (brand.yearOverYearGrowth?.[metric] || '0.0') : brand.growth[metric];
+  };
+
+  // 转换数据格式以适配组件（支持环比/同比切换）
   const getCountryStatsData = (type: 'all' | 'retail' | 'wholesale' | 'vapsoloBrand' | 'vapsoloRetail' | 'vapsoloWholesale' | 'spacexvapeBrand' | 'otherBrand' = 'all') => {
     if (!reportData) return [];
     let sourceData: any[];
@@ -450,17 +531,19 @@ export default function VapsoloWeeklyReport() {
       default:
         sourceData = reportData.all.byCountry;
     }
+    // 根据对比模式选择对应的对比数据
+    const useYoy = isMonthMode && compareMode === 'yoy';
     return sourceData.map((country: any) => ({
       country: country.countryName || country.country,
       orders: country.orders,
       quantity: country.quantity,
       revenue: country.revenue,
-      previousOrders: country.previousOrders || 0,
-      previousQuantity: country.previousQuantity || 0,
-      previousRevenue: country.previousRevenue || 0,
-      ordersGrowth: parseGrowth(country.ordersGrowth || '0.0%'),
-      quantityGrowth: parseGrowth(country.quantityGrowth || '0.0%'),
-      revenueGrowth: parseGrowth(country.revenueGrowth || '0.0%'),
+      previousOrders: useYoy ? (country.previousYearOrders || 0) : (country.previousOrders || 0),
+      previousQuantity: useYoy ? (country.previousYearQuantity || 0) : (country.previousQuantity || 0),
+      previousRevenue: useYoy ? (country.previousYearRevenue || 0) : (country.previousRevenue || 0),
+      ordersGrowth: parseGrowth(useYoy ? (country.yoyOrdersGrowth || '0.0%') : (country.ordersGrowth || '0.0%')),
+      quantityGrowth: parseGrowth(useYoy ? (country.yoyQuantityGrowth || '0.0%') : (country.quantityGrowth || '0.0%')),
+      revenueGrowth: parseGrowth(useYoy ? (country.yoyRevenueGrowth || '0.0%') : (country.revenueGrowth || '0.0%')),
     }));
   };
 
@@ -492,17 +575,19 @@ export default function VapsoloWeeklyReport() {
       default:
         sourceData = reportData.all.bySpu;
     }
+    // 根据对比模式选择对应的对比数据
+    const useYoy = isMonthMode && compareMode === 'yoy';
     return sourceData.map((spu: any) => ({
       spu: spu.spu,
       orders: spu.orders,
       quantity: spu.quantity,
       revenue: spu.revenue,
-      previousOrders: spu.previousOrders || 0,
-      previousQuantity: spu.previousQuantity || 0,
-      previousRevenue: spu.previousRevenue || 0,
-      ordersGrowth: parseGrowth(spu.ordersGrowth || '0.0%'),
-      quantityGrowth: parseGrowth(spu.quantityGrowth || '0.0%'),
-      revenueGrowth: parseGrowth(spu.revenueGrowth || '0.0%'),
+      previousOrders: useYoy ? (spu.previousYearOrders || 0) : (spu.previousOrders || 0),
+      previousQuantity: useYoy ? (spu.previousYearQuantity || 0) : (spu.previousQuantity || 0),
+      previousRevenue: useYoy ? (spu.previousYearRevenue || 0) : (spu.previousRevenue || 0),
+      ordersGrowth: parseGrowth(useYoy ? (spu.yoyOrdersGrowth || '0.0%') : (spu.ordersGrowth || '0.0%')),
+      quantityGrowth: parseGrowth(useYoy ? (spu.yoyQuantityGrowth || '0.0%') : (spu.quantityGrowth || '0.0%')),
+      revenueGrowth: parseGrowth(useYoy ? (spu.yoyRevenueGrowth || '0.0%') : (spu.revenueGrowth || '0.0%')),
     }));
   };
 
@@ -515,17 +600,28 @@ export default function VapsoloWeeklyReport() {
             <div className="flex items-center gap-3">
               <FileText className="h-8 w-8 text-green-600" />
               <div>
-                <h1 className="text-3xl font-bold">Vapsolo 周报</h1>
-                <p className="text-sm text-muted-foreground">16个站点销量统计（含换算规则）· 周环比对比</p>
+                <h1 className="text-3xl font-bold">
+                  {isMonthMode ? 'Vapsolo 月报' : 'Vapsolo 周报'}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {isMonthMode
+                    ? '16个站点销量统计（含换算规则）· 环比+同比对比'
+                    : '16个站点销量统计（含换算规则）· 周环比对比'}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <WeekPicker value={selectedWeek} onChange={setSelectedWeek} />
-              {/* 周范围模式选择 */}
+              {/* 日期选择器：根据模式显示不同组件 */}
+              {isMonthMode ? (
+                <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />
+              ) : (
+                <WeekPicker value={selectedWeek} onChange={setSelectedWeek} />
+              )}
+              {/* 周/月范围模式选择 */}
               <div className="flex items-center gap-1 border rounded-md p-0.5">
                 <button
                   type="button"
-                  onClick={() => setWeekRangeMode('full')}
+                  onClick={() => handleModeChange('full')}
                   className={`px-2 py-1 text-xs rounded transition-colors ${
                     weekRangeMode === 'full'
                       ? 'bg-primary text-primary-foreground'
@@ -537,7 +633,7 @@ export default function VapsoloWeeklyReport() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setWeekRangeMode('monthly')}
+                  onClick={() => handleModeChange('monthly')}
                   className={`px-2 py-1 text-xs rounded transition-colors ${
                     weekRangeMode === 'monthly'
                       ? 'bg-primary text-primary-foreground'
@@ -547,7 +643,48 @@ export default function VapsoloWeeklyReport() {
                 >
                   月内周
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleModeChange('month')}
+                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                    weekRangeMode === 'month'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted'
+                  }`}
+                  title="按自然月统计"
+                >
+                  月报
+                </button>
               </div>
+              {/* 环比/同比切换（仅月报模式显示） */}
+              {isMonthMode && (
+                <div className="flex items-center gap-1 border rounded-md p-0.5 border-orange-300 bg-orange-50">
+                  <button
+                    type="button"
+                    onClick={() => setCompareMode('mom')}
+                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                      compareMode === 'mom'
+                        ? 'bg-orange-500 text-white'
+                        : 'text-orange-600 hover:bg-orange-100'
+                    }`}
+                    title="与上月对比"
+                  >
+                    环比
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompareMode('yoy')}
+                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                      compareMode === 'yoy'
+                        ? 'bg-orange-500 text-white'
+                        : 'text-orange-600 hover:bg-orange-100'
+                    }`}
+                    title="与去年同月对比"
+                  >
+                    同比
+                  </button>
+                </div>
+              )}
               {/* 备注功能暂时隐藏，待数据库表创建后启用 */}
               {/* <WeekNote year={selectedWeek.year} week={selectedWeek.week} /> */}
               <Button onClick={handleExportExcel} disabled={!reportData || loading}>
@@ -592,16 +729,28 @@ export default function VapsoloWeeklyReport() {
                   revenue: reportData.summary.current.totalRevenue,
                 }}
                 previousStats={{
-                  orders: reportData.summary.previous.totalOrders,
-                  quantity: reportData.summary.previous.totalQuantity,
-                  revenue: reportData.summary.previous.totalRevenue,
+                  orders: (isMonthMode && compareMode === 'yoy')
+                    ? (reportData.summary.previousYear?.totalOrders || 0)
+                    : reportData.summary.previous.totalOrders,
+                  quantity: (isMonthMode && compareMode === 'yoy')
+                    ? (reportData.summary.previousYear?.totalQuantity || 0)
+                    : reportData.summary.previous.totalQuantity,
+                  revenue: (isMonthMode && compareMode === 'yoy')
+                    ? (reportData.summary.previousYear?.totalRevenue || 0)
+                    : reportData.summary.previous.totalRevenue,
                 }}
                 growth={{
-                  orders: parseGrowth(reportData.summary.growth.orders),
-                  quantity: parseGrowth(reportData.summary.growth.quantity),
-                  revenue: parseGrowth(reportData.summary.growth.revenue),
+                  orders: parseGrowth((isMonthMode && compareMode === 'yoy')
+                    ? (reportData.summary.yearOverYearGrowth?.orders || '0.0')
+                    : reportData.summary.growth.orders),
+                  quantity: parseGrowth((isMonthMode && compareMode === 'yoy')
+                    ? (reportData.summary.yearOverYearGrowth?.quantity || '0.0')
+                    : reportData.summary.growth.quantity),
+                  revenue: parseGrowth((isMonthMode && compareMode === 'yoy')
+                    ? (reportData.summary.yearOverYearGrowth?.revenue || '0.0')
+                    : reportData.summary.growth.revenue),
                 }}
-                periodLabel="上周"
+                periodLabel={isMonthMode ? (compareMode === 'yoy' ? '去年同月' : '上月') : '上周'}
               />
 
               {/* 品牌维度统计 - 优化布局 */}
@@ -624,8 +773,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">订单</span>
                             <div className="text-right">
                               <span className="font-bold">{reportData.brandComparison.vapsolo.current.orders}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsolo.growth.orders) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsolo.growth.orders}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsolo', 'orders')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsolo', 'orders')}%
                               </span>
                             </div>
                           </div>
@@ -633,8 +782,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">销量</span>
                             <div className="text-right">
                               <span className="font-bold">{reportData.brandComparison.vapsolo.current.quantity.toLocaleString()}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsolo.growth.quantity) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsolo.growth.quantity}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsolo', 'quantity')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsolo', 'quantity')}%
                               </span>
                             </div>
                           </div>
@@ -642,8 +791,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">销售额</span>
                             <div className="text-right">
                               <span className="font-bold text-sm">{reportData.brandComparison.vapsolo.current.revenue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsolo.growth.revenue) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsolo.growth.revenue}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsolo', 'revenue')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsolo', 'revenue')}%
                               </span>
                             </div>
                           </div>
@@ -658,8 +807,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">订单</span>
                             <div className="text-right">
                               <span className="font-semibold">{reportData.brandComparison.vapsoloRetail.current.orders}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsoloRetail.growth.orders) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsoloRetail.growth.orders}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsoloRetail', 'orders')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsoloRetail', 'orders')}%
                               </span>
                             </div>
                           </div>
@@ -667,8 +816,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">销量</span>
                             <div className="text-right">
                               <span className="font-semibold">{reportData.brandComparison.vapsoloRetail.current.quantity.toLocaleString()}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsoloRetail.growth.quantity) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsoloRetail.growth.quantity}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsoloRetail', 'quantity')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsoloRetail', 'quantity')}%
                               </span>
                             </div>
                           </div>
@@ -676,8 +825,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">销售额</span>
                             <div className="text-right">
                               <span className="font-semibold text-sm">{reportData.brandComparison.vapsoloRetail.current.revenue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsoloRetail.growth.revenue) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsoloRetail.growth.revenue}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsoloRetail', 'revenue')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsoloRetail', 'revenue')}%
                               </span>
                             </div>
                           </div>
@@ -692,8 +841,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">订单</span>
                             <div className="text-right">
                               <span className="font-semibold">{reportData.brandComparison.vapsoloWholesale.current.orders}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsoloWholesale.growth.orders) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsoloWholesale.growth.orders}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsoloWholesale', 'orders')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsoloWholesale', 'orders')}%
                               </span>
                             </div>
                           </div>
@@ -701,8 +850,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">销量</span>
                             <div className="text-right">
                               <span className="font-semibold">{reportData.brandComparison.vapsoloWholesale.current.quantity.toLocaleString()}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsoloWholesale.growth.quantity) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsoloWholesale.growth.quantity}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsoloWholesale', 'quantity')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsoloWholesale', 'quantity')}%
                               </span>
                             </div>
                           </div>
@@ -710,8 +859,8 @@ export default function VapsoloWeeklyReport() {
                             <span className="text-xs text-muted-foreground">销售额</span>
                             <div className="text-right">
                               <span className="font-semibold text-sm">{reportData.brandComparison.vapsoloWholesale.current.revenue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</span>
-                              <span className={`text-xs ml-1 ${parseGrowth(reportData.brandComparison.vapsoloWholesale.growth.revenue) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {reportData.brandComparison.vapsoloWholesale.growth.revenue}%
+                              <span className={`text-xs ml-1 ${parseGrowth(getBrandGrowth('vapsoloWholesale', 'revenue')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {getBrandGrowth('vapsoloWholesale', 'revenue')}%
                               </span>
                             </div>
                           </div>
@@ -775,22 +924,22 @@ export default function VapsoloWeeklyReport() {
                         <div className="text-center">
                           <div className="text-xs text-muted-foreground mb-1">订单</div>
                           <div className="font-bold text-lg">{reportData.brandComparison.spacexvape.current.orders}</div>
-                          <div className={`text-xs ${parseGrowth(reportData.brandComparison.spacexvape.growth.orders) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {reportData.brandComparison.spacexvape.growth.orders}%
+                          <div className={`text-xs ${parseGrowth(getBrandGrowth('spacexvape', 'orders')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {getBrandGrowth('spacexvape', 'orders')}%
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-muted-foreground mb-1">销量</div>
                           <div className="font-bold text-lg">{reportData.brandComparison.spacexvape.current.quantity.toLocaleString()}</div>
-                          <div className={`text-xs ${parseGrowth(reportData.brandComparison.spacexvape.growth.quantity) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {reportData.brandComparison.spacexvape.growth.quantity}%
+                          <div className={`text-xs ${parseGrowth(getBrandGrowth('spacexvape', 'quantity')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {getBrandGrowth('spacexvape', 'quantity')}%
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-muted-foreground mb-1">销售额</div>
                           <div className="font-bold">{reportData.brandComparison.spacexvape.current.revenue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</div>
-                          <div className={`text-xs ${parseGrowth(reportData.brandComparison.spacexvape.growth.revenue) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {reportData.brandComparison.spacexvape.growth.revenue}%
+                          <div className={`text-xs ${parseGrowth(getBrandGrowth('spacexvape', 'revenue')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {getBrandGrowth('spacexvape', 'revenue')}%
                           </div>
                         </div>
                       </div>
@@ -808,22 +957,22 @@ export default function VapsoloWeeklyReport() {
                         <div className="text-center">
                           <div className="text-xs text-muted-foreground mb-1">订单</div>
                           <div className="font-bold text-lg">{reportData.brandComparison.other.current.orders}</div>
-                          <div className={`text-xs ${parseGrowth(reportData.brandComparison.other.growth.orders) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {reportData.brandComparison.other.growth.orders}%
+                          <div className={`text-xs ${parseGrowth(getBrandGrowth('other', 'orders')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {getBrandGrowth('other', 'orders')}%
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-muted-foreground mb-1">销量</div>
                           <div className="font-bold text-lg">{reportData.brandComparison.other.current.quantity.toLocaleString()}</div>
-                          <div className={`text-xs ${parseGrowth(reportData.brandComparison.other.growth.quantity) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {reportData.brandComparison.other.growth.quantity}%
+                          <div className={`text-xs ${parseGrowth(getBrandGrowth('other', 'quantity')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {getBrandGrowth('other', 'quantity')}%
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-muted-foreground mb-1">销售额</div>
                           <div className="font-bold">{reportData.brandComparison.other.current.revenue.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</div>
-                          <div className={`text-xs ${parseGrowth(reportData.brandComparison.other.growth.revenue) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {reportData.brandComparison.other.growth.revenue}%
+                          <div className={`text-xs ${parseGrowth(getBrandGrowth('other', 'revenue')) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {getBrandGrowth('other', 'revenue')}%
                           </div>
                         </div>
                       </div>
