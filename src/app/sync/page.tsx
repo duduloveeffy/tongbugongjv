@@ -575,11 +575,18 @@ export default function SyncPage() {
                 const wcProducts = await wcResponse.json();
                 if (wcProducts && wcProducts.length > 0) {
                   const wcQuantity = wcProducts[0].stock_quantity;
+                  console.log(`[低库存同步] ${targetSku}: ERP=${stockQuantity}, WC实时=${wcQuantity}`);
                   if (wcQuantity !== null && wcQuantity !== undefined && wcQuantity < stockQuantity) {
                     effectiveStockQuantity = wcQuantity;
-                    console.log(`[防超卖] ${targetSku}: ERP=${stockQuantity}, WC=${wcQuantity} → 使用 ${effectiveStockQuantity}`);
+                    console.log(`[防超卖生效] ${targetSku}: 使用WC库存 ${effectiveStockQuantity}`);
+                  } else {
+                    console.log(`[低库存同步] ${targetSku}: 使用ERP库存 ${effectiveStockQuantity}`);
                   }
+                } else {
+                  console.log(`[低库存同步] ${targetSku}: WC产品未找到，使用ERP库存 ${effectiveStockQuantity}`);
                 }
+              } else {
+                console.log(`[低库存同步] ${targetSku}: WC API请求失败 ${wcResponse.status}，使用ERP库存 ${effectiveStockQuantity}`);
               }
             } catch (wcError) {
               console.warn(`[防超卖] ${targetSku}: 获取WC实时库存失败，使用传入值`, wcError);
