@@ -206,7 +206,7 @@ function getDefaultWeek(): WeekValue {
 // 周范围模式类型
 type WeekRangeMode = 'full' | 'monthly' | 'month';
 
-// 对比模式类型（月报模式下使用）
+// 对比模式类型（月报模式下��用）
 type CompareMode = 'mom' | 'yoy'; // mom = month-over-month (环比), yoy = year-over-year (同比)
 
 // 获取默认月份（上月）
@@ -316,6 +316,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
       const workbook = XLSX.utils.book_new();
 
       // 总体概览 - 改为品牌维度
+      const previousLabel = isMonthMode ? '上月' : '上周';
       const overviewData = [
         ['统计项', '所有站点', 'Vapsolo', '集合站1', '集合站2'],
         ['订单数', reportData.summary.current.totalOrders, reportData.brandComparison.vapsolo.current.orders, reportData.brandComparison.spacexvape.current.orders, reportData.brandComparison.other.current.orders],
@@ -323,14 +324,14 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
         ['销售额', reportData.summary.current.totalRevenue, reportData.brandComparison.vapsolo.current.revenue, reportData.brandComparison.spacexvape.current.revenue, reportData.brandComparison.other.current.revenue],
         ['平均订单价值', reportData.summary.current.avgOrderValue, reportData.brandComparison.vapsolo.current.revenue / (reportData.brandComparison.vapsolo.current.orders || 1), reportData.brandComparison.spacexvape.current.revenue / (reportData.brandComparison.spacexvape.current.orders || 1), reportData.brandComparison.other.current.revenue / (reportData.brandComparison.other.current.orders || 1)],
         [''],
-        ['上周订单数', reportData.summary.previous.totalOrders, reportData.brandComparison.vapsolo.previous.orders, reportData.brandComparison.spacexvape.previous.orders, reportData.brandComparison.other.previous.orders],
-        ['上周销售量', reportData.summary.previous.totalQuantity, reportData.brandComparison.vapsolo.previous.quantity, reportData.brandComparison.spacexvape.previous.quantity, reportData.brandComparison.other.previous.quantity],
-        ['上周销售额', reportData.summary.previous.totalRevenue, reportData.brandComparison.vapsolo.previous.revenue, reportData.brandComparison.spacexvape.previous.revenue, reportData.brandComparison.other.previous.revenue],
-        ['上周平均订单价值', reportData.summary.previous.avgOrderValue, reportData.brandComparison.vapsolo.previous.revenue / (reportData.brandComparison.vapsolo.previous.orders || 1), reportData.brandComparison.spacexvape.previous.revenue / (reportData.brandComparison.spacexvape.previous.orders || 1), reportData.brandComparison.other.previous.revenue / (reportData.brandComparison.other.previous.orders || 1)],
+        [`${previousLabel}订单数`, reportData.summary.previous.totalOrders, reportData.brandComparison.vapsolo.previous.orders, reportData.brandComparison.spacexvape.previous.orders, reportData.brandComparison.other.previous.orders],
+        [`${previousLabel}销售量`, reportData.summary.previous.totalQuantity, reportData.brandComparison.vapsolo.previous.quantity, reportData.brandComparison.spacexvape.previous.quantity, reportData.brandComparison.other.previous.quantity],
+        [`${previousLabel}销售额`, reportData.summary.previous.totalRevenue, reportData.brandComparison.vapsolo.previous.revenue, reportData.brandComparison.spacexvape.previous.revenue, reportData.brandComparison.other.previous.revenue],
+        [`${previousLabel}平均订单价值`, reportData.summary.previous.avgOrderValue, reportData.brandComparison.vapsolo.previous.revenue / (reportData.brandComparison.vapsolo.previous.orders || 1), reportData.brandComparison.spacexvape.previous.revenue / (reportData.brandComparison.spacexvape.previous.orders || 1), reportData.brandComparison.other.previous.revenue / (reportData.brandComparison.other.previous.orders || 1)],
         [''],
         ['订单增长率', reportData.summary.growth.orders, reportData.brandComparison.vapsolo.growth.orders + '%', reportData.brandComparison.spacexvape.growth.orders + '%', reportData.brandComparison.other.growth.orders + '%'],
         ['销量增长率', reportData.summary.growth.quantity, reportData.brandComparison.vapsolo.growth.quantity + '%', reportData.brandComparison.spacexvape.growth.quantity + '%', reportData.brandComparison.other.growth.quantity + '%'],
-        ['销售额增长率', reportData.summary.growth.revenue, reportData.brandComparison.vapsolo.growth.revenue + '%', reportData.brandComparison.spacexvape.growth.revenue + '%', reportData.brandComparison.other.growth.revenue + '%'],
+        ['销售额增长率', reportData.summary.growth.revenue, reportData.brandComparison.vapsolo.growth.revenue + '%', reportData.brandComparison.spacexvape.growth.revenue + '%', reportData.brandComparison.other.growth.orders + '%'],
       ];
       const overviewSheet = XLSX.utils.aoa_to_sheet(overviewData);
       XLSX.utils.book_append_sheet(workbook, overviewSheet, '总体概览');
@@ -474,7 +475,10 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
       XLSX.utils.book_append_sheet(workbook, trendSheet, '日趋势');
 
       // 导出
-      XLSX.writeFile(workbook, `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周.xlsx`);
+      const fileName = isMonthMode
+        ? `Vapsolo月报_${selectedMonth.year}年${selectedMonth.month}月.xlsx`
+        : `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周.xlsx`;
+      XLSX.writeFile(workbook, fileName);
       toast.success('Excel 导出成功');
     } catch (error) {
       console.error('Export error:', error);
@@ -482,10 +486,17 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
     }
   };
 
+  // 获取打印文档标题
+  const getPrintTitle = () => {
+    return isMonthMode
+      ? `Vapsolo月报_${selectedMonth.year}年${selectedMonth.month}月`
+      : `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周`;
+  };
+
   // 打印/PDF导出
   const handlePrint = useReactToPrint({
     contentRef: printRef,
-    documentTitle: `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周`,
+    documentTitle: getPrintTitle(),
     onBeforePrint: async () => {
       toast.info('准备打印...');
     },
@@ -707,7 +718,9 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
         <Card>
           <CardContent className="flex items-center justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-green-600" />
-            <span className="ml-3 text-sm text-muted-foreground">正在加载周报数据...</span>
+            <span className="ml-3 text-sm text-muted-foreground">
+              {isMonthMode ? '正在加载月报数据...' : '正在加载周报数据...'}
+            </span>
           </CardContent>
         </Card>
       )}
@@ -1034,7 +1047,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
               <DailyTrendChart
                 currentData={reportData.all.dailyTrends}
                 previousData={reportData.all.previousDailyTrends || []}
-                title="日趋势对比 - 全部站点（本周 vs 上周）"
+                title={isMonthMode ? "日趋势对比 - 全部站点（本月 vs 上月）" : "日趋势对比 - 全部站点（本周 vs 上周）"}
               />
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <DailyTrendChart
@@ -1085,7 +1098,9 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
         {!loading && !reportData && (
           <Card>
             <CardContent className="text-center py-16">
-              <p className="text-sm text-muted-foreground">该周暂无数据</p>
+              <p className="text-sm text-muted-foreground">
+                {isMonthMode ? '该月暂无数据' : '该周暂无数据'}
+              </p>
             </CardContent>
           </Card>
         )}
