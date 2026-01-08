@@ -561,6 +561,31 @@ export default function SyncPage() {
       // 同步所有映射的SKU
       for (const targetSku of targetSkus) {
         try {
+          // 如果是低库存数量同步，先获取 WC 实时库存，取最小值防超卖
+          let effectiveStockQuantity = stockQuantity;
+          if (stockQuantity !== undefined) {
+            try {
+              const cleanUrl = apiConfig.siteUrl.replace(/\/$/, '');
+              const auth = btoa(`${apiConfig.consumerKey}:${apiConfig.consumerSecret}`);
+              const wcResponse = await fetch(
+                `${cleanUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(targetSku)}`,
+                { headers: { 'Authorization': `Basic ${auth}` } }
+              );
+              if (wcResponse.ok) {
+                const wcProducts = await wcResponse.json();
+                if (wcProducts && wcProducts.length > 0) {
+                  const wcQuantity = wcProducts[0].stock_quantity;
+                  if (wcQuantity !== null && wcQuantity !== undefined && wcQuantity < stockQuantity) {
+                    effectiveStockQuantity = wcQuantity;
+                    console.log(`[防超卖] ${targetSku}: ERP=${stockQuantity}, WC=${wcQuantity} → 使用 ${effectiveStockQuantity}`);
+                  }
+                }
+              }
+            } catch (wcError) {
+              console.warn(`[防超卖] ${targetSku}: 获取WC实时库存失败，使用传入值`, wcError);
+            }
+          }
+
           const params = new URLSearchParams({
             siteUrl: apiConfig.siteUrl,
             consumerKey: apiConfig.consumerKey,
@@ -570,8 +595,8 @@ export default function SyncPage() {
             siteId: siteId || '',
           });
           // 如果传入了具体库存数量，添加到参数中
-          if (stockQuantity !== undefined) {
-            params.set('stockQuantity', stockQuantity.toString());
+          if (effectiveStockQuantity !== undefined) {
+            params.set('stockQuantity', effectiveStockQuantity.toString());
           }
 
           const response = await fetch('/api/wc-update-stock', {

@@ -457,7 +457,12 @@ export function InventoryTable({
                                   // 判断是否需要同步具体数量（低库存情况）
                                   if (shouldSyncQuantity(currentStockStatus, netStock)) {
                                     // 低库存：同步具体数量
-                                    onSyncSku(item.产品代码, true, selectedSiteId || undefined, netStock);
+                                    // 防超卖：取 ERP 库存和 WC 库存的最小值
+                                    const wcQuantity = item.productData?.stockQuantity;
+                                    const effectiveQuantity = wcQuantity !== null && wcQuantity !== undefined && wcQuantity < netStock
+                                      ? wcQuantity
+                                      : netStock;
+                                    onSyncSku(item.产品代码, true, selectedSiteId || undefined, effectiveQuantity);
                                   } else {
                                     // 正常情况：切换库存状态
                                     const shouldBeInStock = currentStockStatus === 'outofstock';
