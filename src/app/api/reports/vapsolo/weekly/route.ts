@@ -126,6 +126,25 @@ interface DetailedStats {
   dailyTrends: DailyTrendItem[];
   previousDailyTrends?: DailyTrendItem[];
   previousYearDailyTrends?: DailyTrendItem[]; // 去年同月日趋势（月报模式）
+  weeklyTrends?: WeeklyTrendItem[]; // 周趋势（季报模式）
+  previousWeeklyTrends?: WeeklyTrendItem[]; // 上季度周趋势
+  previousYearWeeklyTrends?: WeeklyTrendItem[]; // 去年同季度周趋势
+}
+
+interface WeeklyTrendItem {
+  week: number; // ISO 周数
+  weekLabel: string; // 显示标签，如 "W1", "W2"
+  startDate: string; // 周起始日期
+  endDate: string; // 周结束日期
+  orders: number;
+  revenue: number;
+  quantity: number;
+  retailOrders: number;
+  retailRevenue: number;
+  retailQuantity: number;
+  wholesaleOrders: number;
+  wholesaleRevenue: number;
+  wholesaleQuantity: number;
 }
 
 interface SiteRankingItem {
@@ -1080,6 +1099,132 @@ function aggregateByDay(orders: any[]): DailyTrendItem[] {
   return Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// 获取 ISO 周数
+function getISOWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+// 获取 ISO 周的起始和结束日期
+function getWeekBoundaries(date: Date): { start: Date; end: Date } {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // 调整到周一
+  const start = new Date(d.setDate(diff));
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+// 按周聚合订单数据（季报专用）
+function aggregateByWeek(orders: any[]): WeeklyTrendItem[] {
+  const weekMap = new Map<string, {
+    week: number;
+    startDate: string;
+    endDate: string;
+    orders: number;
+    revenue: number;
+    quantity: number;
+    retailOrders: number;
+    retailRevenue: number;
+    retailQuantity: number;
+    wholesaleOrders: number;
+    wholesaleRevenue: number;
+    wholesaleQuantity: number;
+    orderIds: Set<string>;
+  }>();
+
+  orders.forEach(order => {
+    const orderDate = new Date(order.date_created);
+    const weekNum = getISOWeekNumber(orderDate);
+    const { start, end } = getWeekBoundaries(orderDate);
+    const weekKey = `${orderDate.getFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
+    const siteType = getVapsoloSiteType(order.site_name);
+
+    if (!weekMap.has(weekKey)) {
+      weekMap.set(weekKey, {
+        week: weekNum,
+        startDate: start.toISOString().split('T')[0] || '',
+        endDate: end.toISOString().split('T')[0] || '',
+        orders: 0,
+        revenue: 0,
+        quantity: 0,
+        retailOrders: 0,
+        retailRevenue: 0,
+        retailQuantity: 0,
+        wholesaleOrders: 0,
+        wholesaleRevenue: 0,
+        wholesaleQuantity: 0,
+        orderIds: new Set(),
+      });
+    }
+
+    const data = weekMap.get(weekKey)!;
+    const orderRevenue = parseFloat(order.total || 0);
+
+    // 避免重复计算同一订单
+    if (!data.orderIds.has(order.id)) {
+      data.orderIds.add(order.id);
+      data.orders++;
+      data.revenue += orderRevenue;
+
+      if (siteType === 'retail') {
+        data.retailOrders++;
+        data.retailRevenue += orderRevenue;
+      } else if (siteType === 'wholesale') {
+        data.wholesaleOrders++;
+        data.wholesaleRevenue += orderRevenue;
+      }
+    }
+
+    order.order_items?.forEach((item: any) => {
+      const quantity = calculateVapsoloQuantity(item, order.site_name, spuConfig);
+      data.quantity += quantity;
+
+      if (siteType === 'retail') {
+        data.retailQuantity += quantity;
+      } else if (siteType === 'wholesale') {
+        data.wholesaleQuantity += quantity;
+      }
+    });
+  });
+
+  // 转换为数组并按周排序，计算月内第几周
+  const weeks = Array.from(weekMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([_, data]) => {
+      // 根据周起始日期计算是几月第几周
+      const startDate = new Date(data.startDate);
+      const month = startDate.getMonth() + 1; // 1-12
+      // 计算该日期是当月的第几周（基于日期在月内的位置）
+      const dayOfMonth = startDate.getDate();
+      const weekOfMonth = Math.ceil(dayOfMonth / 7);
+
+      return {
+        week: data.week,
+        weekLabel: `${month}月第${weekOfMonth}周`,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        orders: data.orders,
+        revenue: data.revenue,
+        quantity: data.quantity,
+        retailOrders: data.retailOrders,
+        retailRevenue: data.retailRevenue,
+        retailQuantity: data.retailQuantity,
+        wholesaleOrders: data.wholesaleOrders,
+        wholesaleRevenue: data.wholesaleRevenue,
+        wholesaleQuantity: data.wholesaleQuantity,
+      };
+    });
+
+  return weeks;
+}
+
 // 合并站点对比数据
 function mergeSiteComparison(current: any[], previous: any[]): SiteRankingItem[] {
   const previousMap = new Map(previous.map(item => [item.siteId, item]));
@@ -1677,6 +1822,7 @@ async function handleQuarterReport(supabase: any, year: number, quarter: number)
   };
 
   // 构建返回数据（复用 WeeklyReportData 结构，使用 isMonthMode 标识季报）
+  // 为季报生成周趋势数据
   const reportData: WeeklyReportData = {
     isMonthMode: true, // 季报也使用这个标识，表示支持环比+同比
     period: {
@@ -1691,41 +1837,65 @@ async function handleQuarterReport(supabase: any, year: number, quarter: number)
       ...allBrandCurrent.details,
       previousDailyTrends: allBrandPrevious.details.dailyTrends,
       previousYearDailyTrends: allBrandPreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(allBrandCurrentOrders),
+      previousWeeklyTrends: aggregateByWeek(allBrandPreviousOrders),
+      previousYearWeeklyTrends: aggregateByWeek(allBrandPreviousYearOrders),
     },
     retail: {
       ...retailCurrent.details,
       previousDailyTrends: retailPrevious.details.dailyTrends,
       previousYearDailyTrends: retailPreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(filterRetailOrders(vapsoloCurrentOrders)),
+      previousWeeklyTrends: aggregateByWeek(filterRetailOrders(vapsoloPreviousOrders)),
+      previousYearWeeklyTrends: aggregateByWeek(filterRetailOrders(vapsoloPreviousYearOrders)),
     },
     wholesale: {
       ...wholesaleCurrent.details,
       previousDailyTrends: wholesalePrevious.details.dailyTrends,
       previousYearDailyTrends: wholesalePreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(filterWholesaleOrders(vapsoloCurrentOrders)),
+      previousWeeklyTrends: aggregateByWeek(filterWholesaleOrders(vapsoloPreviousOrders)),
+      previousYearWeeklyTrends: aggregateByWeek(filterWholesaleOrders(vapsoloPreviousYearOrders)),
     },
     vapsoloBrand: {
       ...vapsoloBrandCurrent.details,
       previousDailyTrends: vapsoloBrandPrevious.details.dailyTrends,
       previousYearDailyTrends: vapsoloBrandPreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(vapsoloBrandCurrentOrders),
+      previousWeeklyTrends: aggregateByWeek(vapsoloBrandPreviousOrders),
+      previousYearWeeklyTrends: aggregateByWeek(vapsoloBrandPreviousYearOrders),
     },
     vapsoloRetail: {
       ...vapsoloRetailCurrent.details,
       previousDailyTrends: vapsoloRetailPrevious.details.dailyTrends,
       previousYearDailyTrends: vapsoloRetailPreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(vapsoloRetailCurrentOrders),
+      previousWeeklyTrends: aggregateByWeek(vapsoloRetailPreviousOrders),
+      previousYearWeeklyTrends: aggregateByWeek(vapsoloRetailPreviousYearOrders),
     },
     vapsoloWholesale: {
       ...vapsoloWholesaleCurrent.details,
       previousDailyTrends: vapsoloWholesalePrevious.details.dailyTrends,
       previousYearDailyTrends: vapsoloWholesalePreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(vapsoloWholesaleCurrentOrders),
+      previousWeeklyTrends: aggregateByWeek(vapsoloWholesalePreviousOrders),
+      previousYearWeeklyTrends: aggregateByWeek(vapsoloWholesalePreviousYearOrders),
     },
     spacexvapeBrand: {
       ...spacexvapeBrandCurrent.details,
       previousDailyTrends: spacexvapeBrandPrevious.details.dailyTrends,
       previousYearDailyTrends: spacexvapeBrandPreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(spacexvapeBrandCurrentOrders),
+      previousWeeklyTrends: aggregateByWeek(spacexvapeBrandPreviousOrders),
+      previousYearWeeklyTrends: aggregateByWeek(spacexvapeBrandPreviousYearOrders),
     },
     otherBrand: {
       ...otherBrandCurrent.details,
       previousDailyTrends: otherBrandPrevious.details.dailyTrends,
       previousYearDailyTrends: otherBrandPreviousYear.details.dailyTrends,
+      weeklyTrends: aggregateByWeek(otherBrandCurrentOrders),
+      previousWeeklyTrends: aggregateByWeek(otherBrandPreviousOrders),
+      previousYearWeeklyTrends: aggregateByWeek(otherBrandPreviousYearOrders),
     },
   };
 

@@ -113,6 +113,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
     retail: {
       bySite: any[];
@@ -121,6 +124,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
     wholesale: {
       bySite: any[];
@@ -129,6 +135,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
     vapsoloBrand: {
       bySite: any[];
@@ -137,6 +146,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
     vapsoloRetail: {
       bySite: any[];
@@ -145,6 +157,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
     vapsoloWholesale: {
       bySite: any[];
@@ -153,6 +168,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
     spacexvapeBrand: {
       bySite: any[];
@@ -161,6 +179,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
     otherBrand: {
       bySite: any[];
@@ -169,6 +190,9 @@ interface ApiResponse {
       dailyTrends: any[];
       previousDailyTrends?: any[];
       previousYearDailyTrends?: any[];
+      weeklyTrends?: any[];
+      previousWeeklyTrends?: any[];
+      previousYearWeeklyTrends?: any[];
     };
   };
 }
@@ -1281,27 +1305,39 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
               <DailyTrendChart
                 currentData={reportData.all.dailyTrends}
                 previousData={reportData.all.previousDailyTrends || []}
-                title={isQuarterMode ? "日趋势对比 - 全部站点（本季度 vs 上季度）" : (isMonthMode ? "日趋势对比 - 全部站点（本月 vs 上月）" : "日趋势对比 - 全部站点（本周 vs 上周）")}
+                weeklyCurrentData={reportData.all.weeklyTrends}
+                weeklyPreviousData={reportData.all.previousWeeklyTrends}
+                isWeeklyMode={isQuarterMode}
+                title={isQuarterMode ? "周趋势对比 - 全部站点（本季度 vs 上季度）" : (isMonthMode ? "日趋势对比 - 全部站点（本月 vs 上月）" : "日趋势对比 - 全部站点（本周 vs 上周）")}
               />
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <DailyTrendChart
                   currentData={reportData.vapsoloBrand.dailyTrends}
                   previousData={reportData.vapsoloBrand.previousDailyTrends || []}
-                  title="Vapsolo 趋势"
+                  weeklyCurrentData={reportData.vapsoloBrand.weeklyTrends}
+                  weeklyPreviousData={reportData.vapsoloBrand.previousWeeklyTrends}
+                  isWeeklyMode={isQuarterMode}
+                  title={isQuarterMode ? "Vapsolo 周趋势" : "Vapsolo 趋势"}
                   variant="vapsolo"
                   compact
                 />
                 <DailyTrendChart
                   currentData={reportData.spacexvapeBrand.dailyTrends}
                   previousData={reportData.spacexvapeBrand.previousDailyTrends || []}
-                  title="集合站1 趋势"
+                  weeklyCurrentData={reportData.spacexvapeBrand.weeklyTrends}
+                  weeklyPreviousData={reportData.spacexvapeBrand.previousWeeklyTrends}
+                  isWeeklyMode={isQuarterMode}
+                  title={isQuarterMode ? "集合站1 周趋势" : "集合站1 趋势"}
                   variant="spacexvape"
                   compact
                 />
                 <DailyTrendChart
                   currentData={reportData.otherBrand.dailyTrends}
                   previousData={reportData.otherBrand.previousDailyTrends || []}
-                  title="集合站2 趋势"
+                  weeklyCurrentData={reportData.otherBrand.weeklyTrends}
+                  weeklyPreviousData={reportData.otherBrand.previousWeeklyTrends}
+                  isWeeklyMode={isQuarterMode}
+                  title={isQuarterMode ? "集合站2 周趋势" : "集合站2 趋势"}
                   variant="other"
                   compact
                 />
@@ -1311,14 +1347,20 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
                 <DailyTrendChart
                   currentData={reportData.vapsoloRetail.dailyTrends}
                   previousData={reportData.vapsoloRetail.previousDailyTrends || []}
-                  title="Vapsolo 零售站趋势"
+                  weeklyCurrentData={reportData.vapsoloRetail.weeklyTrends}
+                  weeklyPreviousData={reportData.vapsoloRetail.previousWeeklyTrends}
+                  isWeeklyMode={isQuarterMode}
+                  title={isQuarterMode ? "Vapsolo 零售站周趋势" : "Vapsolo 零售站趋势"}
                   variant="vapsolo"
                   compact
                 />
                 <DailyTrendChart
                   currentData={reportData.vapsoloWholesale.dailyTrends}
                   previousData={reportData.vapsoloWholesale.previousDailyTrends || []}
-                  title="Vapsolo 批发站趋势"
+                  weeklyCurrentData={reportData.vapsoloWholesale.weeklyTrends}
+                  weeklyPreviousData={reportData.vapsoloWholesale.previousWeeklyTrends}
+                  isWeeklyMode={isQuarterMode}
+                  title={isQuarterMode ? "Vapsolo 批发站周趋势" : "Vapsolo 批发站趋势"}
                   variant="vapsolo"
                   compact
                 />

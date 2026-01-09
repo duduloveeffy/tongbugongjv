@@ -24,6 +24,16 @@ interface DailyTrend {
   revenue: number;
 }
 
+interface WeeklyTrend {
+  week: number;
+  weekLabel: string;
+  startDate: string;
+  endDate: string;
+  orders: number;
+  quantity: number;
+  revenue: number;
+}
+
 type BrandVariant = 'default' | 'vapsolo' | 'spacexvape' | 'other';
 
 interface DailyTrendChartProps {
@@ -33,6 +43,11 @@ interface DailyTrendChartProps {
   variant?: BrandVariant;
   /** 是否为紧凑模式（减少高度） */
   compact?: boolean;
+  /** 周趋势数据（季报模式使用） */
+  weeklyCurrentData?: WeeklyTrend[];
+  weeklyPreviousData?: WeeklyTrend[];
+  /** 是否为周趋势模式（季报） */
+  isWeeklyMode?: boolean;
 }
 
 const variantStyles: Record<BrandVariant, { border: string; titleColor: string; primaryColor: string }> = {
@@ -48,6 +63,9 @@ export function DailyTrendChart({
   title = '日趋势对比',
   variant = 'default',
   compact = false,
+  weeklyCurrentData,
+  weeklyPreviousData,
+  isWeeklyMode = false,
 }: DailyTrendChartProps) {
   const [chartType, setChartType] = useState<'line' | 'bar'>('line');
   const [showComparison, setShowComparison] = useState(true);
@@ -66,19 +84,41 @@ export function DailyTrendChart({
     return new Intl.NumberFormat('zh-CN').format(value);
   };
 
-  // 合并本周和上周数据，按日期对齐
-  const mergedData = currentData.map((current, index) => {
-    const previous = previousData[index] || { orders: 0, quantity: 0, revenue: 0 };
-    return {
-      date: current.date.split('-')[2] || '', // 只显示日期（去掉年月）
-      本周订单: current.orders,
-      本周销量: current.quantity,
-      本周销售额: current.revenue,
-      上周订单: previous.orders,
-      上周销量: previous.quantity,
-      上周销售额: previous.revenue,
-    };
-  });
+  // 根据模式选择数据源
+  const mergedData = isWeeklyMode && weeklyCurrentData
+    ? weeklyCurrentData.map((current, index) => {
+        const previous = weeklyPreviousData?.[index] || { orders: 0, quantity: 0, revenue: 0 };
+        return {
+          date: current.weekLabel, // 显示 W1, W2 等
+          本季度订单: current.orders,
+          本季度销量: current.quantity,
+          本季度销售额: current.revenue,
+          上季度订单: previous.orders,
+          上季度销量: previous.quantity,
+          上季度销售额: previous.revenue,
+        };
+      })
+    : currentData.map((current, index) => {
+        const previous = previousData[index] || { orders: 0, quantity: 0, revenue: 0 };
+        return {
+          date: current.date.split('-')[2] || '', // 只显示日期（去掉年月）
+          本周订单: current.orders,
+          本周销量: current.quantity,
+          本周销售额: current.revenue,
+          上周订单: previous.orders,
+          上周销量: previous.quantity,
+          上周销售额: previous.revenue,
+        };
+      });
+
+  // 根据模式设置数据键名
+  const currentOrderKey = isWeeklyMode ? '本季度订单' : '本周订单';
+  const previousOrderKey = isWeeklyMode ? '上季度订单' : '上周订单';
+  const currentQuantityKey = isWeeklyMode ? '本季度销量' : '本周销量';
+  const previousQuantityKey = isWeeklyMode ? '上季度销量' : '上周销量';
+  const currentRevenueKey = isWeeklyMode ? '本季度销售额' : '本周销售额';
+  const previousRevenueKey = isWeeklyMode ? '上季度销售额' : '上周销售额';
+  const toggleLabel = isWeeklyMode ? (showComparison ? '显示对比' : '仅本季') : (showComparison ? '显示对比' : '仅本周');
 
   return (
     <Card className={`${styles.border} print-chart-card`}>
@@ -91,7 +131,7 @@ export function DailyTrendChart({
               variant={showComparison ? 'default' : 'outline'}
               onClick={() => setShowComparison(!showComparison)}
             >
-              {showComparison ? '显示对比' : '仅本周'}
+              {toggleLabel}
             </Button>
             <div className="flex border rounded-md">
               <Button
@@ -131,7 +171,7 @@ export function DailyTrendChart({
                   <Legend />
                   <Line
                     type="monotone"
-                    dataKey="本周订单"
+                    dataKey={currentOrderKey}
                     stroke={styles.primaryColor}
                     strokeWidth={2}
                     dot={{ r: 3 }}
@@ -139,7 +179,7 @@ export function DailyTrendChart({
                   {showComparison && (
                     <Line
                       type="monotone"
-                      dataKey="上周订单"
+                      dataKey={previousOrderKey}
                       stroke="#82ca9d"
                       strokeWidth={2}
                       strokeDasharray="5 5"
@@ -154,8 +194,8 @@ export function DailyTrendChart({
                   <YAxis />
                   <Tooltip formatter={(value: number) => formatNumber(value)} />
                   <Legend />
-                  <Bar dataKey="本周订单" fill={styles.primaryColor} />
-                  {showComparison && <Bar dataKey="上周订单" fill="#82ca9d" />}
+                  <Bar dataKey={currentOrderKey} fill={styles.primaryColor} />
+                  {showComparison && <Bar dataKey={previousOrderKey} fill="#82ca9d" />}
                 </BarChart>
               )}
             </ResponsiveContainer>
@@ -176,7 +216,7 @@ export function DailyTrendChart({
                   <Legend />
                   <Line
                     type="monotone"
-                    dataKey="本周销量"
+                    dataKey={currentQuantityKey}
                     stroke={styles.primaryColor}
                     strokeWidth={2}
                     dot={{ r: 3 }}
@@ -184,7 +224,7 @@ export function DailyTrendChart({
                   {showComparison && (
                     <Line
                       type="monotone"
-                      dataKey="上周销量"
+                      dataKey={previousQuantityKey}
                       stroke="#82ca9d"
                       strokeWidth={2}
                       strokeDasharray="5 5"
@@ -199,8 +239,8 @@ export function DailyTrendChart({
                   <YAxis />
                   <Tooltip formatter={(value: number) => formatNumber(value)} />
                   <Legend />
-                  <Bar dataKey="本周销量" fill={styles.primaryColor} />
-                  {showComparison && <Bar dataKey="上周销量" fill="#82ca9d" />}
+                  <Bar dataKey={currentQuantityKey} fill={styles.primaryColor} />
+                  {showComparison && <Bar dataKey={previousQuantityKey} fill="#82ca9d" />}
                 </BarChart>
               )}
             </ResponsiveContainer>
@@ -221,7 +261,7 @@ export function DailyTrendChart({
                   <Legend />
                   <Line
                     type="monotone"
-                    dataKey="本周销售额"
+                    dataKey={currentRevenueKey}
                     stroke={styles.primaryColor}
                     strokeWidth={2}
                     dot={{ r: 3 }}
@@ -229,7 +269,7 @@ export function DailyTrendChart({
                   {showComparison && (
                     <Line
                       type="monotone"
-                      dataKey="上周销售额"
+                      dataKey={previousRevenueKey}
                       stroke="#ff7c7c"
                       strokeWidth={2}
                       strokeDasharray="5 5"
@@ -244,8 +284,8 @@ export function DailyTrendChart({
                   <YAxis />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} />
                   <Legend />
-                  <Bar dataKey="本周销售额" fill={styles.primaryColor} />
-                  {showComparison && <Bar dataKey="上周销售额" fill="#ff7c7c" />}
+                  <Bar dataKey={currentRevenueKey} fill={styles.primaryColor} />
+                  {showComparison && <Bar dataKey={previousRevenueKey} fill="#ff7c7c" />}
                 </BarChart>
               )}
             </ResponsiveContainer>
