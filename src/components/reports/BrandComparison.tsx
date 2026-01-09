@@ -132,7 +132,7 @@ export function BrandComparison({
   };
 
   return (
-    <Card>
+    <Card className="brand-comparison-card print-chart-card">
       <CardHeader>
         <CardTitle className="text-lg">品牌站点对比</CardTitle>
       </CardHeader>
@@ -238,13 +238,14 @@ export function BrandComparison({
             </div>
 
             {/* 图表内容 */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 brand-charts-grid print:gap-2">
               {/* 柱状图 - 包含 Vapsolo 零售/批发 */}
-              <div className="bg-white border rounded-lg p-4">
+              <div className="bg-white border rounded-lg p-4 print:p-2 bar-chart-container">
                 <div className="text-sm font-medium text-muted-foreground mb-2">
                   {getMetricLabel(activeTab)}对比（含 Vapsolo 零售/批发）
                 </div>
-                <ResponsiveContainer width="100%" height={280}>
+                <div className="chart-height-280" style={{ width: '100%', height: 280 }}>
+                <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={barChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" fontSize={11} angle={-15} textAnchor="end" height={50} />
@@ -262,39 +263,41 @@ export function BrandComparison({
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-                <div className="flex justify-center gap-4 mt-2 text-xs">
+                </div>
+                <div className="flex flex-wrap justify-center gap-2 mt-2 text-xs print:gap-1 print:text-[8pt]">
                   <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded" style={{ backgroundColor: '#3b82f6' }}></span>
+                    <span className="w-3 h-3 rounded print:w-2 print:h-2" style={{ backgroundColor: '#3b82f6' }}></span>
                     Vapsolo总计
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded" style={{ backgroundColor: '#60a5fa' }}></span>
+                    <span className="w-3 h-3 rounded print:w-2 print:h-2" style={{ backgroundColor: '#60a5fa' }}></span>
                     vapsolo零售站
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded" style={{ backgroundColor: '#818cf8' }}></span>
+                    <span className="w-3 h-3 rounded print:w-2 print:h-2" style={{ backgroundColor: '#818cf8' }}></span>
                     vapsolo批发站
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded" style={{ backgroundColor: '#10b981' }}></span>
+                    <span className="w-3 h-3 rounded print:w-2 print:h-2" style={{ backgroundColor: '#10b981' }}></span>
                     集合站1
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }}></span>
+                    <span className="w-3 h-3 rounded print:w-2 print:h-2" style={{ backgroundColor: '#f59e0b' }}></span>
                     集合站2
                   </span>
                 </div>
               </div>
 
               {/* 双饼图：品牌占比 + Vapsolo 零售/批发占比 */}
-              <div className="bg-white border rounded-lg p-4">
-                <div className="grid grid-cols-2 gap-2">
+              <div className="bg-white border rounded-lg p-4 print:p-2 pie-charts-container">
+                <div className="grid grid-cols-2 gap-2 print:gap-1">
                   {/* 品牌占比饼图 */}
                   <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-1 text-center">
+                    <div className="text-sm font-medium text-muted-foreground mb-1 text-center print:text-[9pt]">
                       品牌{getMetricLabel(activeTab)}占比
                     </div>
-                    <ResponsiveContainer width="100%" height={130}>
+                    <div className="chart-height-110" style={{ width: '100%', height: 110 }}>
+                    <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
                           data={getPieData(activeTab)}
@@ -302,7 +305,7 @@ export function BrandComparison({
                           cy="50%"
                           labelLine={false}
                           label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`}
-                          outerRadius={50}
+                          outerRadius={35}
                           fill="#8884d8"
                           dataKey="value"
                         >
@@ -313,7 +316,8 @@ export function BrandComparison({
                         <Tooltip formatter={(value: number) => formatValue(value, activeTab)} />
                       </PieChart>
                     </ResponsiveContainer>
-                    <div className="flex justify-center gap-2 text-xs">
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-2 text-xs print:gap-1 print:text-[8pt]">
                       <span className="flex items-center gap-1">
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }}></span>
                         Vapsolo
@@ -331,10 +335,11 @@ export function BrandComparison({
 
                   {/* Vapsolo 零售/批发饼图 */}
                   <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-1 text-center">
+                    <div className="text-sm font-medium text-muted-foreground mb-1 text-center print:text-[9pt]">
                       Vapsolo 零售/批发
                     </div>
-                    <ResponsiveContainer width="100%" height={130}>
+                    <div className="chart-height-110" style={{ width: '100%', height: 110 }}>
+                    <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
                           data={getVapsoloPieData(activeTab)}
@@ -342,7 +347,7 @@ export function BrandComparison({
                           cy="50%"
                           labelLine={false}
                           label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`}
-                          outerRadius={50}
+                          outerRadius={35}
                           fill="#8884d8"
                           dataKey="value"
                         >
@@ -353,7 +358,8 @@ export function BrandComparison({
                         <Tooltip formatter={(value: number) => formatValue(value, activeTab)} />
                       </PieChart>
                     </ResponsiveContainer>
-                    <div className="flex justify-center gap-3 text-xs">
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-2 text-xs print:gap-1 print:text-[8pt]">
                       <span className="flex items-center gap-1">
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#60a5fa' }}></span>
                         零售站

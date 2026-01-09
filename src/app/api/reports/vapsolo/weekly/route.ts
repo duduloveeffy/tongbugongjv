@@ -16,14 +16,49 @@ import { extractSpu, type SpuExtractionConfig } from '@/lib/spu-utils';
 import { defaultSpuMappings } from '@/config/spu-mappings';
 import { getCountryName } from '@/lib/country-utils';
 
+// 简单的内存缓存（季报数据量大，缓存可显著提升性能）
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+const reportCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+
+function getCacheKey(type: string, year: number, period: number): string {
+  return `${type}-${year}-${period}`;
+}
+
+function getFromCache(key: string): any | null {
+  const entry = reportCache.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+    console.log(`[Cache] Hit: ${key}`);
+    return entry.data;
+  }
+  if (entry) {
+    reportCache.delete(key);
+  }
+  return null;
+}
+
+function setCache(key: string, data: any): void {
+  // 限制缓存大小，最多保留10个条目
+  if (reportCache.size >= 10) {
+    const oldestKey = reportCache.keys().next().value;
+    if (oldestKey) reportCache.delete(oldestKey);
+  }
+  reportCache.set(key, { data, timestamp: Date.now() });
+  console.log(`[Cache] Set: ${key}`);
+}
+
 // 请求参数接口
 interface RequestParams {
   year: number;
   week?: number; // ISO week number (1-53)，周模式必填
   startDate?: string; // YYYY-MM-DD，周模式必填
   endDate?: string; // YYYY-MM-DD，周模式必填
-  weekRangeMode?: 'full' | 'monthly' | 'month'; // 完整周 或 月内周 或 月报
+  weekRangeMode?: 'full' | 'monthly' | 'month' | 'quarter'; // 完整周 或 月内周 或 月报 或 季报
   month?: number; // 1-12，月报模式必填
+  quarter?: number; // 1-4，季报模式必填
 }
 
 // 周报数据结构
@@ -189,7 +224,7 @@ const spuConfig: SpuExtractionConfig = {
 export async function POST(request: NextRequest) {
   try {
     const body: RequestParams = await request.json();
-    const { year, week, startDate, endDate, weekRangeMode = 'full', month } = body;
+    const { year, week, startDate, endDate, weekRangeMode = 'full', month, quarter } = body;
 
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -208,6 +243,17 @@ export async function POST(request: NextRequest) {
         );
       }
       return handleMonthReport(supabase, year, month);
+    }
+
+    // 季报模式
+    if (weekRangeMode === 'quarter') {
+      if (!year || !quarter || quarter < 1 || quarter > 4) {
+        return NextResponse.json(
+          { error: 'Invalid quarter parameters' },
+          { status: 400 }
+        );
+      }
+      return handleQuarterReport(supabase, year, quarter);
     }
 
     // 周报模式 - 参数验证
@@ -593,57 +639,92 @@ function getPreviousWeekRange(currentStartDate: string, weekRangeMode: 'full' | 
   };
 }
 
-// 查询指定时间范围的订单
+// 查询指定时间范围的订单（优化版：只选择必要字段，并行分页）
 async function fetchOrdersByPeriod(supabase: any, startDate: string, endDate: string) {
-  const allOrders: any[] = [];
-  let offset = 0;
   const pageSize = 1000;
-  let hasMore = true;
 
-  while (hasMore) {
-    const { data: pageData, error } = await supabase
-      .from('orders')
-      .select(`
-        *,
-        order_items (
-          id,
-          item_id,
-          product_id,
-          variation_id,
-          sku,
-          name,
-          quantity,
-          total,
-          price
-        ),
-        wc_sites!inner (
-          id,
-          name
-        )
-      `)
-      .gte('date_created', startDate)
-      .lte('date_created', endDate)
-      .in('status', ['completed', 'processing'])
-      .range(offset, offset + pageSize - 1)
-      .order('date_created', { ascending: true });
+  // 先获取总数以确定需要多少并行请求
+  const { count, error: countError } = await supabase
+    .from('orders')
+    .select('*', { count: 'exact', head: true })
+    .gte('date_created', startDate)
+    .lte('date_created', endDate)
+    .in('status', ['completed', 'processing']);
 
-    if (error) {
-      console.error('Failed to fetch orders:', error);
-      throw new Error(`Failed to fetch orders: ${error.message}`);
+  if (countError) {
+    console.error('Failed to count orders:', countError);
+    throw new Error(`Failed to count orders: ${countError.message}`);
+  }
+
+  const totalCount = count || 0;
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  console.log(`[fetchOrdersByPeriod] ${startDate} ~ ${endDate}: ${totalCount} orders, ${totalPages} pages`);
+
+  if (totalCount === 0) {
+    return [];
+  }
+
+  // 并行获取所有分页（最多5个并发请求）
+  const maxConcurrent = 5;
+  const allOrders: any[] = [];
+
+  for (let batch = 0; batch < totalPages; batch += maxConcurrent) {
+    const pagePromises = [];
+    for (let i = 0; i < maxConcurrent && batch + i < totalPages; i++) {
+      const pageIndex = batch + i;
+      const offset = pageIndex * pageSize;
+
+      pagePromises.push(
+        supabase
+          .from('orders')
+          .select(`
+            id,
+            order_id,
+            site_id,
+            status,
+            currency,
+            total,
+            date_created,
+            billing_country,
+            order_items (
+              id,
+              sku,
+              name,
+              quantity,
+              total,
+              price
+            ),
+            wc_sites!inner (
+              id,
+              name
+            )
+          `)
+          .gte('date_created', startDate)
+          .lte('date_created', endDate)
+          .in('status', ['completed', 'processing'])
+          .range(offset, offset + pageSize - 1)
+          .order('date_created', { ascending: true })
+      );
     }
 
-    if (pageData && pageData.length > 0) {
-      // 展平站点信息到订单对象
-      const flattenedOrders = pageData.map((order: any) => ({
-        ...order,
-        site_name: order.wc_sites?.name || '',
-      }));
+    const results = await Promise.all(pagePromises);
 
-      allOrders.push(...flattenedOrders);
-      offset += pageSize;
-      hasMore = pageData.length === pageSize;
-    } else {
-      hasMore = false;
+    for (const { data: pageData, error } of results) {
+      if (error) {
+        console.error('Failed to fetch orders:', error);
+        throw new Error(`Failed to fetch orders: ${error.message}`);
+      }
+
+      if (pageData && pageData.length > 0) {
+        // 展平站点信息到订单对象
+        const flattenedOrders = pageData.map((order: any) => ({
+          ...order,
+          site_name: order.wc_sites?.name || '',
+        }));
+
+        allOrders.push(...flattenedOrders);
+      }
     }
   }
 
@@ -1388,6 +1469,268 @@ async function handleMonthReport(supabase: any, year: number, month: number) {
       previousYearDailyTrends: otherBrandPreviousYear.details.dailyTrends,
     },
   };
+
+  return NextResponse.json({
+    success: true,
+    data: reportData,
+  });
+}
+
+// ========== 季报模式相关函数 ==========
+
+// 获取季度日期范围
+function getQuarterRange(year: number, quarter: number) {
+  // Q1: 1-3月, Q2: 4-6月, Q3: 7-9月, Q4: 10-12月
+  const startMonth = (quarter - 1) * 3; // 0-indexed: 0, 3, 6, 9
+  const endMonth = startMonth + 2; // 0-indexed: 2, 5, 8, 11
+
+  const start = new Date(Date.UTC(year, startMonth, 1));
+  const end = new Date(Date.UTC(year, endMonth + 1, 0, 23, 59, 59, 999)); // 季度最后一天
+
+  return {
+    year,
+    quarter,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    startDate: start.toISOString().split('T')[0] || '',
+    endDate: end.toISOString().split('T')[0] || '',
+  };
+}
+
+// 获取上季度日期范围
+function getPreviousQuarterRange(year: number, quarter: number) {
+  let prevYear = year;
+  let prevQuarter = quarter - 1;
+  if (prevQuarter === 0) {
+    prevQuarter = 4;
+    prevYear -= 1;
+  }
+  return getQuarterRange(prevYear, prevQuarter);
+}
+
+// 获取去年同季度日期范围
+function getQuarterYearOverYearRange(year: number, quarter: number) {
+  return getQuarterRange(year - 1, quarter);
+}
+
+// 处理季报请求
+async function handleQuarterReport(supabase: any, year: number, quarter: number) {
+  // 检查缓存
+  const cacheKey = getCacheKey('quarterly', year, quarter);
+  const cachedData = getFromCache(cacheKey);
+  if (cachedData) {
+    return NextResponse.json({
+      success: true,
+      data: cachedData,
+      cached: true,
+    });
+  }
+
+  // 计算三个时期的日期范围
+  const currentPeriod = getQuarterRange(year, quarter);
+  const previousPeriod = getPreviousQuarterRange(year, quarter);
+  const previousYearPeriod = getQuarterYearOverYearRange(year, quarter);
+
+  console.log('[Vapsolo Quarterly Report] Querying:', {
+    current: currentPeriod,
+    previous: previousPeriod,
+    previousYear: previousYearPeriod,
+  });
+
+  // 并行查询三个时期的订单数据
+  const [currentOrders, previousOrders, previousYearOrders] = await Promise.all([
+    fetchOrdersByPeriod(supabase, currentPeriod.start, currentPeriod.end),
+    fetchOrdersByPeriod(supabase, previousPeriod.start, previousPeriod.end),
+    fetchOrdersByPeriod(supabase, previousYearPeriod.start, previousYearPeriod.end),
+  ]);
+
+  console.log('[Vapsolo Quarterly Report] Orders fetched:', {
+    current: currentOrders.length,
+    previous: previousOrders.length,
+    previousYear: previousYearOrders.length,
+  });
+
+  // 过滤 Vapsolo 订单
+  const vapsoloCurrentOrders = filterVapsoloOrders(currentOrders);
+  const vapsoloPreviousOrders = filterVapsoloOrders(previousOrders);
+  const vapsoloPreviousYearOrders = filterVapsoloOrders(previousYearOrders);
+
+  // 处理数据：全部、零售、批发
+  const retailCurrent = processOrdersWithTripleComparison(
+    filterRetailOrders(vapsoloCurrentOrders),
+    filterRetailOrders(vapsoloPreviousOrders),
+    filterRetailOrders(vapsoloPreviousYearOrders),
+    'retail'
+  );
+  const wholesaleCurrent = processOrdersWithTripleComparison(
+    filterWholesaleOrders(vapsoloCurrentOrders),
+    filterWholesaleOrders(vapsoloPreviousOrders),
+    filterWholesaleOrders(vapsoloPreviousYearOrders),
+    'wholesale'
+  );
+
+  // 处理上季度和去年同季度的独立数据以获取summary
+  const retailPrevious = processOrders(filterRetailOrders(vapsoloPreviousOrders), 'retail');
+  const retailPreviousYear = processOrders(filterRetailOrders(vapsoloPreviousYearOrders), 'retail');
+  const wholesalePrevious = processOrders(filterWholesaleOrders(vapsoloPreviousOrders), 'wholesale');
+  const wholesalePreviousYear = processOrders(filterWholesaleOrders(vapsoloPreviousYearOrders), 'wholesale');
+
+  // 处理品牌维度数据
+  const vapsoloBrandCurrentOrders = filterVapsoloBrandOrders(currentOrders);
+  const vapsoloBrandPreviousOrders = filterVapsoloBrandOrders(previousOrders);
+  const vapsoloBrandPreviousYearOrders = filterVapsoloBrandOrders(previousYearOrders);
+  const spacexvapeBrandCurrentOrders = filterSpacexvapeBrandOrders(currentOrders);
+  const spacexvapeBrandPreviousOrders = filterSpacexvapeBrandOrders(previousOrders);
+  const spacexvapeBrandPreviousYearOrders = filterSpacexvapeBrandOrders(previousYearOrders);
+  const otherBrandCurrentOrders = filterOtherBrandOrders(currentOrders);
+  const otherBrandPreviousOrders = filterOtherBrandOrders(previousOrders);
+  const otherBrandPreviousYearOrders = filterOtherBrandOrders(previousYearOrders);
+
+  // 品牌维度详细统计
+  const vapsoloBrandCurrent = processOrdersWithTripleComparison(vapsoloBrandCurrentOrders, vapsoloBrandPreviousOrders, vapsoloBrandPreviousYearOrders, 'all');
+  const vapsoloBrandPrevious = processOrders(vapsoloBrandPreviousOrders, 'all');
+  const vapsoloBrandPreviousYear = processOrders(vapsoloBrandPreviousYearOrders, 'all');
+
+  // Vapsolo 零售站和批发站子维度
+  const vapsoloRetailCurrentOrders = filterRetailOrders(vapsoloBrandCurrentOrders);
+  const vapsoloRetailPreviousOrders = filterRetailOrders(vapsoloBrandPreviousOrders);
+  const vapsoloRetailPreviousYearOrders = filterRetailOrders(vapsoloBrandPreviousYearOrders);
+  const vapsoloWholesaleCurrentOrders = filterWholesaleOrders(vapsoloBrandCurrentOrders);
+  const vapsoloWholesalePreviousOrders = filterWholesaleOrders(vapsoloBrandPreviousOrders);
+  const vapsoloWholesalePreviousYearOrders = filterWholesaleOrders(vapsoloBrandPreviousYearOrders);
+
+  const vapsoloRetailCurrent = processOrdersWithTripleComparison(vapsoloRetailCurrentOrders, vapsoloRetailPreviousOrders, vapsoloRetailPreviousYearOrders, 'retail');
+  const vapsoloRetailPrevious = processOrders(vapsoloRetailPreviousOrders, 'retail');
+  const vapsoloRetailPreviousYear = processOrders(vapsoloRetailPreviousYearOrders, 'retail');
+  const vapsoloWholesaleCurrent = processOrdersWithTripleComparison(vapsoloWholesaleCurrentOrders, vapsoloWholesalePreviousOrders, vapsoloWholesalePreviousYearOrders, 'wholesale');
+  const vapsoloWholesalePrevious = processOrders(vapsoloWholesalePreviousOrders, 'wholesale');
+  const vapsoloWholesalePreviousYear = processOrders(vapsoloWholesalePreviousYearOrders, 'wholesale');
+
+  const spacexvapeBrandCurrent = processOrdersWithTripleComparison(spacexvapeBrandCurrentOrders, spacexvapeBrandPreviousOrders, spacexvapeBrandPreviousYearOrders, 'all');
+  const spacexvapeBrandPrevious = processOrders(spacexvapeBrandPreviousOrders, 'all');
+  const spacexvapeBrandPreviousYear = processOrders(spacexvapeBrandPreviousYearOrders, 'all');
+  const otherBrandCurrent = processOrdersWithTripleComparison(otherBrandCurrentOrders, otherBrandPreviousOrders, otherBrandPreviousYearOrders, 'all');
+  const otherBrandPrevious = processOrders(otherBrandPreviousOrders, 'all');
+  const otherBrandPreviousYear = processOrders(otherBrandPreviousYearOrders, 'all');
+
+  // 计算总体概览（所有品牌的总和）
+  const allBrandCurrentOrders = [...vapsoloBrandCurrentOrders, ...spacexvapeBrandCurrentOrders, ...otherBrandCurrentOrders];
+  const allBrandPreviousOrders = [...vapsoloBrandPreviousOrders, ...spacexvapeBrandPreviousOrders, ...otherBrandPreviousOrders];
+  const allBrandPreviousYearOrders = [...vapsoloBrandPreviousYearOrders, ...spacexvapeBrandPreviousYearOrders, ...otherBrandPreviousYearOrders];
+  const allBrandCurrent = processOrdersWithTripleComparison(allBrandCurrentOrders, allBrandPreviousOrders, allBrandPreviousYearOrders, 'all');
+  const allBrandPrevious = processOrders(allBrandPreviousOrders, 'all');
+  const allBrandPreviousYear = processOrders(allBrandPreviousYearOrders, 'all');
+
+  // 构建汇总统计
+  const summary = {
+    current: allBrandCurrent.summary,
+    previous: allBrandPrevious.summary,
+    growth: calculateGrowth(allBrandCurrent.summary, allBrandPrevious.summary),
+    previousYear: allBrandPreviousYear.summary,
+    yearOverYearGrowth: calculateGrowth(allBrandCurrent.summary, allBrandPreviousYear.summary),
+  };
+
+  // 构建品牌对比数据（含同比）
+  const buildBrandComparison = (
+    current: { summary: SummaryStats },
+    previous: { summary: SummaryStats },
+    previousYear: { summary: SummaryStats }
+  ): TypeComparisonData => ({
+    current: {
+      orders: current.summary.totalOrders,
+      revenue: current.summary.totalRevenue,
+      quantity: current.summary.totalQuantity,
+    },
+    previous: {
+      orders: previous.summary.totalOrders,
+      revenue: previous.summary.totalRevenue,
+      quantity: previous.summary.totalQuantity,
+    },
+    growth: {
+      orders: calculateGrowth(current.summary, previous.summary).orders,
+      revenue: calculateGrowth(current.summary, previous.summary).revenue,
+      quantity: calculateGrowth(current.summary, previous.summary).quantity,
+    },
+    previousYear: {
+      orders: previousYear.summary.totalOrders,
+      revenue: previousYear.summary.totalRevenue,
+      quantity: previousYear.summary.totalQuantity,
+    },
+    yearOverYearGrowth: {
+      orders: calculateGrowth(current.summary, previousYear.summary).orders,
+      revenue: calculateGrowth(current.summary, previousYear.summary).revenue,
+      quantity: calculateGrowth(current.summary, previousYear.summary).quantity,
+    },
+  });
+
+  const siteTypeComparison = {
+    retail: buildBrandComparison(retailCurrent, retailPrevious, retailPreviousYear),
+    wholesale: buildBrandComparison(wholesaleCurrent, wholesalePrevious, wholesalePreviousYear),
+  };
+
+  const brandComparison = {
+    vapsolo: buildBrandComparison(vapsoloBrandCurrent, vapsoloBrandPrevious, vapsoloBrandPreviousYear),
+    vapsoloRetail: buildBrandComparison(vapsoloRetailCurrent, vapsoloRetailPrevious, vapsoloRetailPreviousYear),
+    vapsoloWholesale: buildBrandComparison(vapsoloWholesaleCurrent, vapsoloWholesalePrevious, vapsoloWholesalePreviousYear),
+    spacexvape: buildBrandComparison(spacexvapeBrandCurrent, spacexvapeBrandPrevious, spacexvapeBrandPreviousYear),
+    other: buildBrandComparison(otherBrandCurrent, otherBrandPrevious, otherBrandPreviousYear),
+  };
+
+  // 构建返回数据（复用 WeeklyReportData 结构，使用 isMonthMode 标识季报）
+  const reportData: WeeklyReportData = {
+    isMonthMode: true, // 季报也使用这个标识，表示支持环比+同比
+    period: {
+      current: { year, month: quarter, start: currentPeriod.startDate, end: currentPeriod.endDate },
+      previous: { year: previousPeriod.year, month: previousPeriod.quarter, start: previousPeriod.startDate, end: previousPeriod.endDate },
+      previousYear: { year: previousYearPeriod.year, month: previousYearPeriod.quarter, start: previousYearPeriod.startDate, end: previousYearPeriod.endDate },
+    },
+    summary,
+    siteTypeComparison,
+    brandComparison,
+    all: {
+      ...allBrandCurrent.details,
+      previousDailyTrends: allBrandPrevious.details.dailyTrends,
+      previousYearDailyTrends: allBrandPreviousYear.details.dailyTrends,
+    },
+    retail: {
+      ...retailCurrent.details,
+      previousDailyTrends: retailPrevious.details.dailyTrends,
+      previousYearDailyTrends: retailPreviousYear.details.dailyTrends,
+    },
+    wholesale: {
+      ...wholesaleCurrent.details,
+      previousDailyTrends: wholesalePrevious.details.dailyTrends,
+      previousYearDailyTrends: wholesalePreviousYear.details.dailyTrends,
+    },
+    vapsoloBrand: {
+      ...vapsoloBrandCurrent.details,
+      previousDailyTrends: vapsoloBrandPrevious.details.dailyTrends,
+      previousYearDailyTrends: vapsoloBrandPreviousYear.details.dailyTrends,
+    },
+    vapsoloRetail: {
+      ...vapsoloRetailCurrent.details,
+      previousDailyTrends: vapsoloRetailPrevious.details.dailyTrends,
+      previousYearDailyTrends: vapsoloRetailPreviousYear.details.dailyTrends,
+    },
+    vapsoloWholesale: {
+      ...vapsoloWholesaleCurrent.details,
+      previousDailyTrends: vapsoloWholesalePrevious.details.dailyTrends,
+      previousYearDailyTrends: vapsoloWholesalePreviousYear.details.dailyTrends,
+    },
+    spacexvapeBrand: {
+      ...spacexvapeBrandCurrent.details,
+      previousDailyTrends: spacexvapeBrandPrevious.details.dailyTrends,
+      previousYearDailyTrends: spacexvapeBrandPreviousYear.details.dailyTrends,
+    },
+    otherBrand: {
+      ...otherBrandCurrent.details,
+      previousDailyTrends: otherBrandPrevious.details.dailyTrends,
+      previousYearDailyTrends: otherBrandPreviousYear.details.dailyTrends,
+    },
+  };
+
+  // 缓存结果
+  setCache(cacheKey, reportData);
 
   return NextResponse.json({
     success: true,

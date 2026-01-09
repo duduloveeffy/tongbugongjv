@@ -3,13 +3,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Download, FileText, Printer } from 'lucide-react';
-import { useReactToPrint } from 'react-to-print';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { WeekPicker, type WeekValue } from '@/components/reports/WeekPicker';
 import { MonthPicker } from '@/components/reports/MonthPicker';
-import { WeekNote } from '@/components/reports/WeekNote';
+import { QuarterPicker } from '@/components/reports/QuarterPicker';
+import { getDefaultQuarter } from '@/lib/quarter-utils';
 import { OverviewStats } from '@/components/reports/OverviewStats';
 import { BrandComparison } from '@/components/reports/BrandComparison';
 import { CountryStatsTable } from '@/components/reports/CountryStatsTable';
@@ -17,6 +17,8 @@ import { SpuRankingTable } from '@/components/reports/SpuRankingTable';
 import { DailyTrendChart } from '@/components/reports/DailyTrendChart';
 import * as XLSX from 'xlsx';
 import { startOfWeek, endOfWeek, subWeeks, format } from 'date-fns';
+import domtoimage from 'dom-to-image-more';
+import { jsPDF } from 'jspdf';
 
 // 汇总统计接口
 interface SummaryStats {
@@ -204,10 +206,10 @@ function getDefaultWeek(): WeekValue {
 }
 
 // 周范围模式类型
-type WeekRangeMode = 'full' | 'monthly' | 'month';
+type WeekRangeMode = 'full' | 'monthly' | 'month' | 'quarter';
 
-// 对比模式类型（月报模式下��用）
-type CompareMode = 'mom' | 'yoy'; // mom = month-over-month (环比), yoy = year-over-year (同比)
+// 对比模式类型（月报/季报模式下使用）
+type CompareMode = 'mom' | 'yoy'; // mom = month-over-month / quarter-over-quarter (环比), yoy = year-over-year (同比)
 
 // 获取默认月份（上月）
 function getDefaultMonth(): { year: number; month: number } {
@@ -221,27 +223,33 @@ function getDefaultMonth(): { year: number; month: number } {
 }
 
 interface VapsoloReportProps {
-  initialMode?: 'weekly' | 'monthly';
+  initialMode?: 'weekly' | 'monthly' | 'quarterly';
 }
 
 export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloReportProps) {
   const router = useRouter();
   const [selectedWeek, setSelectedWeek] = useState<WeekValue>(getDefaultWeek());
   const [selectedMonth, setSelectedMonth] = useState(getDefaultMonth());
-  const [weekRangeMode, setWeekRangeMode] = useState<WeekRangeMode>(initialMode === 'monthly' ? 'month' : 'full');
+  const [selectedQuarter, setSelectedQuarter] = useState(getDefaultQuarter());
+  const [weekRangeMode, setWeekRangeMode] = useState<WeekRangeMode>(
+    initialMode === 'quarterly' ? 'quarter' : (initialMode === 'monthly' ? 'month' : 'full')
+  );
   const [compareMode, setCompareMode] = useState<CompareMode>('mom'); // 环比/同比切换
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState<ApiResponse['data'] | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
-  // 月报模式标识
+  // 月报/季报模式标识
   const isMonthMode = weekRangeMode === 'month';
+  const isQuarterMode = weekRangeMode === 'quarter';
 
   // 处理模式切换，同时更新 URL
   const handleModeChange = (newMode: WeekRangeMode) => {
     setWeekRangeMode(newMode);
-    // 切换到月报时跳转到 /reports/monthly，否则跳转到 /reports/weekly
-    if (newMode === 'month') {
+    // 根据模式切换对应的 URL
+    if (newMode === 'quarter') {
+      router.push('/reports/quarterly');
+    } else if (newMode === 'month') {
       router.push('/reports/monthly');
     } else {
       router.push('/reports/weekly');
@@ -250,26 +258,34 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
 
   useEffect(() => {
     loadReport();
-  }, [selectedWeek, selectedMonth, weekRangeMode]);
+  }, [selectedWeek, selectedMonth, selectedQuarter, weekRangeMode]);
 
   const loadReport = async () => {
     setLoading(true);
     try {
       // 根据模式构建请求参数
-      const requestBody = isMonthMode
-        ? {
-            year: selectedMonth.year,
-            month: selectedMonth.month,
-            weekRangeMode: 'month' as const,
-          }
-        : {
-            year: selectedWeek.year,
-            week: selectedWeek.week,
-            startDate: selectedWeek.startDate,
-            endDate: selectedWeek.endDate,
-            weekRangeMode,
-          };
-
+      let requestBody;
+      if (isQuarterMode) {
+        requestBody = {
+          year: selectedQuarter.year,
+          quarter: selectedQuarter.quarter,
+          weekRangeMode: 'quarter' as const,
+        };
+      } else if (isMonthMode) {
+        requestBody = {
+          year: selectedMonth.year,
+          month: selectedMonth.month,
+          weekRangeMode: 'month' as const,
+        };
+      } else {
+        requestBody = {
+          year: selectedWeek.year,
+          week: selectedWeek.week,
+          startDate: selectedWeek.startDate,
+          endDate: selectedWeek.endDate,
+          weekRangeMode,
+        };
+      }
       const response = await fetch('/api/reports/vapsolo/weekly', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -295,7 +311,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
       if (error.name === 'AbortError' || error.message?.includes('timeout')) {
         toast.error('Vercel 查询超时，数据量过大，建议联系管理员查询问题。', { duration: 10000 });
       } else {
-        toast.error('加载周报失败');
+        toast.error(isQuarterMode ? '加载季报失败' : (isMonthMode ? '加载月报失败' : '加载周报失败'));
       }
     } finally {
       setLoading(false);
@@ -316,7 +332,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
       const workbook = XLSX.utils.book_new();
 
       // 总体概览 - 改为品牌维度
-      const previousLabel = isMonthMode ? '上月' : '上周';
+      const previousLabel = isQuarterMode ? '上季度' : (isMonthMode ? '上月' : '上周');
       const overviewData = [
         ['统计项', '所有站点', 'Vapsolo', '集合站1', '集合站2'],
         ['订单数', reportData.summary.current.totalOrders, reportData.brandComparison.vapsolo.current.orders, reportData.brandComparison.spacexvape.current.orders, reportData.brandComparison.other.current.orders],
@@ -475,9 +491,14 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
       XLSX.utils.book_append_sheet(workbook, trendSheet, '日趋势');
 
       // 导出
-      const fileName = isMonthMode
-        ? `Vapsolo月报_${selectedMonth.year}年${selectedMonth.month}月.xlsx`
-        : `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周.xlsx`;
+      let fileName;
+      if (isQuarterMode) {
+        fileName = `Vapsolo季报_${selectedQuarter.year}年Q${selectedQuarter.quarter}.xlsx`;
+      } else if (isMonthMode) {
+        fileName = `Vapsolo月报_${selectedMonth.year}年${selectedMonth.month}月.xlsx`;
+      } else {
+        fileName = `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周.xlsx`;
+      }
       XLSX.writeFile(workbook, fileName);
       toast.success('Excel 导出成功');
     } catch (error) {
@@ -488,28 +509,219 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
 
   // 获取打印文档标题
   const getPrintTitle = () => {
-    return isMonthMode
-      ? `Vapsolo月报_${selectedMonth.year}年${selectedMonth.month}月`
-      : `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周`;
+    if (isQuarterMode) {
+      return `Vapsolo季报_${selectedQuarter.year}年Q${selectedQuarter.quarter}`;
+    } else if (isMonthMode) {
+      return `Vapsolo月报_${selectedMonth.year}年${selectedMonth.month}月`;
+    }
+    return `Vapsolo周报_${selectedWeek.year}年第${selectedWeek.week}周`;
   };
 
-  // 打印/PDF导出
-  const handlePrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: getPrintTitle(),
-    onBeforePrint: async () => {
-      toast.info('准备打印...');
-    },
-    onAfterPrint: async () => {
-      toast.success('打印预览已打开');
-    },
-  });
+  // PDF 导出状态
+  const [pdfExporting, setPdfExporting] = useState(false);
+
+  // 导出PDF - 使用 dom-to-image-more + jsPDF（智能分页）
+  const handleExportPdf = async () => {
+    if (pdfExporting || !printRef.current) return;
+
+    setPdfExporting(true);
+    toast.info('正在生成 PDF，请稍候...');
+
+    try {
+      const element = printRef.current;
+      const filename = `${getPrintTitle()}.pdf`;
+
+      // 临时添加样式覆盖 oklch 颜色，并移除边框
+      const style = document.createElement('style');
+      style.id = 'pdf-export-style';
+      style.textContent = `
+        * {
+          --background: #ffffff !important;
+          --foreground: #0a0a0a !important;
+          --card: #ffffff !important;
+          --card-foreground: #0a0a0a !important;
+          --primary: #171717 !important;
+          --primary-foreground: #fafafa !important;
+          --secondary: #f5f5f5 !important;
+          --secondary-foreground: #171717 !important;
+          --muted: #f5f5f5 !important;
+          --muted-foreground: #737373 !important;
+          --accent: #f5f5f5 !important;
+          --accent-foreground: #171717 !important;
+          --border: transparent !important;
+          --input: transparent !important;
+          --ring: transparent !important;
+          border-color: transparent !important;
+        }
+        /* 移除所有边框 */
+        div, section, article, header, footer, main, aside, nav,
+        table, tr, td, th, thead, tbody,
+        .border, [class*="border"], [class*="rounded"] {
+          border: none !important;
+          border-color: transparent !important;
+          box-shadow: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      // 等待样式应用
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 获取所有可分页的元素边界（section、卡片、表格等）
+      const containerRect = element.getBoundingClientRect();
+
+      // 收集所有分页点（元素的顶部位置，相对于容器）
+      const breakPoints: number[] = [0]; // 从0开始
+
+      // 1. 添加每个 section 标题（h2）的顶部位置作为分页点
+      // 这样当标题出现在页面底部时，会在标题之前分页，把标题推到下一页
+      const sectionTitles = element.querySelectorAll('section > h2');
+      sectionTitles.forEach((title) => {
+        const rect = title.getBoundingClientRect();
+        const relativeTop = rect.top - containerRect.top;
+        if (relativeTop > 10) {
+          breakPoints.push(relativeTop);
+        }
+      });
+
+      // 2. 添加内容块的顶部位置作为分页点
+      const contentBlocks = element.querySelectorAll(
+        'section > .space-y-4 > div, ' +
+        'section .space-y-4 > div, ' +
+        'section > .space-y-4 > .grid, ' +
+        'section .space-y-4 > .grid'
+      );
+
+      contentBlocks.forEach((block) => {
+        const rect = block.getBoundingClientRect();
+        const relativeTop = rect.top - containerRect.top;
+        if (relativeTop > 10) {
+          breakPoints.push(relativeTop);
+        }
+      });
+
+      // 去重并排序
+      const uniqueBreakPoints = [...new Set(breakPoints)].sort((a, b) => a - b);
+      uniqueBreakPoints.push(containerRect.height); // 结束位置
+
+      // 使用 dom-to-image-more 生成完整图片
+      const dataUrl = await domtoimage.toPng(element, {
+        quality: 1,
+        bgcolor: '#ffffff',
+        style: {
+          transform: 'scale(1)',
+          transformOrigin: 'top left',
+        },
+      });
+
+      // 移除临时样式
+      document.getElementById('pdf-export-style')?.remove();
+
+      // 创建图片获取尺寸
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise((resolve) => { img.onload = resolve; });
+
+      // 计算缩放比例（图片像素 vs DOM 尺寸）
+      const scale = img.width / containerRect.width;
+
+      // 创建 PDF (A4 尺寸)
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const contentWidth = pdfWidth - margin * 2;
+      const contentHeight = pdfHeight - margin * 2;
+
+      // 计算 DOM 到 PDF 的缩放比例
+      const domToPdfScale = contentWidth / containerRect.width;
+      const maxPageHeightInDom = contentHeight / domToPdfScale;
+
+      // 智能分页：根据 section 边界和页面高度确定分页点
+      const pageBreaks: { start: number; end: number }[] = [];
+      let currentPageStart = 0;
+
+      for (let i = 1; i < uniqueBreakPoints.length; i++) {
+        const sectionEnd = uniqueBreakPoints[i] ?? containerRect.height;
+        const currentPageHeight = sectionEnd - currentPageStart;
+
+        // 如果当前累积高度超过一页
+        if (currentPageHeight > maxPageHeightInDom) {
+          // 如果是第一个 section 就超过了，只能强制分页
+          if (i === 1 || uniqueBreakPoints[i - 1] === currentPageStart) {
+            // 这个 section 太大，需要在中间切割
+            let cutPoint = currentPageStart + maxPageHeightInDom;
+            while (cutPoint < sectionEnd) {
+              pageBreaks.push({ start: currentPageStart, end: cutPoint });
+              currentPageStart = cutPoint;
+              cutPoint = currentPageStart + maxPageHeightInDom;
+            }
+          } else {
+            // 在上一个元素结束处分页
+            const previousBreak = uniqueBreakPoints[i - 1] ?? 0;
+            pageBreaks.push({ start: currentPageStart, end: previousBreak });
+            currentPageStart = previousBreak;
+            i--; // 重新检查当前元素
+          }
+        }
+      }
+      // 添加最后一页
+      if (currentPageStart < containerRect.height) {
+        pageBreaks.push({ start: currentPageStart, end: containerRect.height });
+      }
+
+      // 生成 PDF 页面
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+
+      for (let i = 0; i < pageBreaks.length; i++) {
+        if (i > 0) pdf.addPage();
+
+        const pageBreak = pageBreaks[i];
+        if (!pageBreak) continue;
+        const { start, end } = pageBreak;
+        const sourceY = start * scale;
+        const sourceHeight = (end - start) * scale;
+        const destHeight = (end - start) * domToPdfScale;
+
+        // 创建这一页的图片
+        canvas.width = img.width;
+        canvas.height = Math.ceil(sourceHeight);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(
+          img,
+          0, sourceY, img.width, sourceHeight,
+          0, 0, img.width, sourceHeight
+        );
+
+        const pageDataUrl = canvas.toDataURL('image/png');
+        pdf.addImage(pageDataUrl, 'PNG', margin, margin, contentWidth, destHeight);
+      }
+
+      // 下载 PDF
+      pdf.save(filename);
+      toast.success('PDF 导出成功');
+    } catch (error: any) {
+      console.error('PDF export error:', error);
+      // 确保移除临时样式
+      document.getElementById('pdf-export-style')?.remove();
+      toast.error(`PDF 导出失败: ${error.message}`);
+    } finally {
+      setPdfExporting(false);
+    }
+  };
 
   // 辅助函数：获取品牌对比的增长率（根据环比/同比模式）
   const getBrandGrowth = (brandKey: 'vapsolo' | 'vapsoloRetail' | 'vapsoloWholesale' | 'spacexvape' | 'other', metric: 'orders' | 'revenue' | 'quantity') => {
     if (!reportData) return '0.0';
     const brand = reportData.brandComparison[brandKey];
-    const useYoy = isMonthMode && compareMode === 'yoy';
+    const useYoy = (isMonthMode || isQuarterMode) && compareMode === 'yoy';
     return useYoy ? (brand.yearOverYearGrowth?.[metric] || '0.0') : brand.growth[metric];
   };
 
@@ -543,7 +755,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
         sourceData = reportData.all.byCountry;
     }
     // 根据对比模式选择对应的对比数据
-    const useYoy = isMonthMode && compareMode === 'yoy';
+    const useYoy = (isMonthMode || isQuarterMode) && compareMode === 'yoy';
     return sourceData.map((country: any) => ({
       country: country.countryName || country.country,
       orders: country.orders,
@@ -587,7 +799,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
         sourceData = reportData.all.bySpu;
     }
     // 根据对比模式选择对应的对比数据
-    const useYoy = isMonthMode && compareMode === 'yoy';
+    const useYoy = (isMonthMode || isQuarterMode) && compareMode === 'yoy';
     return sourceData.map((spu: any) => ({
       spu: spu.spu,
       orders: spu.orders,
@@ -612,23 +824,27 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
               <FileText className="h-8 w-8 text-green-600" />
               <div>
                 <h1 className="text-3xl font-bold">
-                  {isMonthMode ? 'Vapsolo 月报' : 'Vapsolo 周报'}
+                  {isQuarterMode ? 'Vapsolo 季报' : (isMonthMode ? 'Vapsolo 月报' : 'Vapsolo 周报')}
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  {isMonthMode
-                    ? '16个站点销量统计（含换算规则）· 环比+同比对比'
-                    : '16个站点销量统计（含换算规则）· 周环比对比'}
+                  {isQuarterMode
+                    ? '16个站点销量统计（含换算规则）· 季度环比+同比对比'
+                    : (isMonthMode
+                      ? '16个站点销量统计（含换算规则）· 环比+同比对比'
+                      : '16个站点销量统计（含换算规则）· 周环比对比')}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               {/* 日期选择器：根据模式显示不同组件 */}
-              {isMonthMode ? (
+              {isQuarterMode ? (
+                <QuarterPicker value={selectedQuarter} onChange={setSelectedQuarter} />
+              ) : isMonthMode ? (
                 <MonthPicker value={selectedMonth} onChange={setSelectedMonth} />
               ) : (
                 <WeekPicker value={selectedWeek} onChange={setSelectedWeek} />
               )}
-              {/* 周/月范围模式选择 */}
+              {/* 周/月/季范围模式选择 */}
               <div className="flex items-center gap-1 border rounded-md p-0.5">
                 <button
                   type="button"
@@ -666,9 +882,21 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
                 >
                   月报
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleModeChange('quarter')}
+                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                    weekRangeMode === 'quarter'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted'
+                  }`}
+                  title="按自然季度统计"
+                >
+                  季报
+                </button>
               </div>
-              {/* 环比/同比切换（仅月报模式显示） */}
-              {isMonthMode && (
+              {/* 环比/同比切换（月报/季报模式显示） */}
+              {(isMonthMode || isQuarterMode) && (
                 <div className="flex items-center gap-1 border rounded-md p-0.5 border-orange-300 bg-orange-50">
                   <button
                     type="button"
@@ -678,7 +906,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
                         ? 'bg-orange-500 text-white'
                         : 'text-orange-600 hover:bg-orange-100'
                     }`}
-                    title="与上月对比"
+                    title={isQuarterMode ? "与上季度对比" : "与上月对比"}
                   >
                     环比
                   </button>
@@ -690,7 +918,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
                         ? 'bg-orange-500 text-white'
                         : 'text-orange-600 hover:bg-orange-100'
                     }`}
-                    title="与去年同月对比"
+                    title={isQuarterMode ? "与去年同季度对比" : "与去年同月对比"}
                   >
                     同比
                   </button>
@@ -702,9 +930,13 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
                 <Download className="h-4 w-4 mr-2" />
                 导出 Excel
               </Button>
-              <Button onClick={handlePrint} disabled={!reportData || loading} variant="outline">
-                <Printer className="h-4 w-4 mr-2" />
-                打印/PDF
+              <Button onClick={handleExportPdf} disabled={!reportData || loading || pdfExporting} variant="outline">
+                {pdfExporting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Printer className="h-4 w-4 mr-2" />
+                )}
+                {pdfExporting ? '生成中...' : '导出 PDF'}
               </Button>
             </div>
           </div>
@@ -719,7 +951,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
           <CardContent className="flex items-center justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-green-600" />
             <span className="ml-3 text-sm text-muted-foreground">
-              {isMonthMode ? '正在加载月报数据...' : '正在加载周报数据...'}
+              {isQuarterMode ? '正在加载季报数据...' : (isMonthMode ? '正在加载月报数据...' : '正在加载周报数据...')}
             </span>
           </CardContent>
         </Card>
@@ -742,28 +974,30 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
                   revenue: reportData.summary.current.totalRevenue,
                 }}
                 previousStats={{
-                  orders: (isMonthMode && compareMode === 'yoy')
+                  orders: ((isMonthMode || isQuarterMode) && compareMode === 'yoy')
                     ? (reportData.summary.previousYear?.totalOrders || 0)
                     : reportData.summary.previous.totalOrders,
-                  quantity: (isMonthMode && compareMode === 'yoy')
+                  quantity: ((isMonthMode || isQuarterMode) && compareMode === 'yoy')
                     ? (reportData.summary.previousYear?.totalQuantity || 0)
                     : reportData.summary.previous.totalQuantity,
-                  revenue: (isMonthMode && compareMode === 'yoy')
+                  revenue: ((isMonthMode || isQuarterMode) && compareMode === 'yoy')
                     ? (reportData.summary.previousYear?.totalRevenue || 0)
                     : reportData.summary.previous.totalRevenue,
                 }}
                 growth={{
-                  orders: parseGrowth((isMonthMode && compareMode === 'yoy')
+                  orders: parseGrowth(((isMonthMode || isQuarterMode) && compareMode === 'yoy')
                     ? (reportData.summary.yearOverYearGrowth?.orders || '0.0')
                     : reportData.summary.growth.orders),
-                  quantity: parseGrowth((isMonthMode && compareMode === 'yoy')
+                  quantity: parseGrowth(((isMonthMode || isQuarterMode) && compareMode === 'yoy')
                     ? (reportData.summary.yearOverYearGrowth?.quantity || '0.0')
                     : reportData.summary.growth.quantity),
-                  revenue: parseGrowth((isMonthMode && compareMode === 'yoy')
+                  revenue: parseGrowth(((isMonthMode || isQuarterMode) && compareMode === 'yoy')
                     ? (reportData.summary.yearOverYearGrowth?.revenue || '0.0')
                     : reportData.summary.growth.revenue),
                 }}
-                periodLabel={isMonthMode ? (compareMode === 'yoy' ? '去年同月' : '上月') : '上周'}
+                periodLabel={isQuarterMode
+                  ? (compareMode === 'yoy' ? '去年同季' : '上季度')
+                  : (isMonthMode ? (compareMode === 'yoy' ? '去年同月' : '上月') : '上周')}
               />
 
               {/* 品牌维度统计 - 优化布局 */}
@@ -1012,7 +1246,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
 
           {/* ========== 国家统计板块 ========== */}
           <section>
-            <h2 className="text-lg font-semibold text-muted-foreground mb-4 pb-2 border-b">🌍 国家统计</h2>
+            <h2 id="pdf-section-country" className="text-lg font-semibold text-muted-foreground mb-4 pb-2 border-b">🌍 国家统计</h2>
             <div className="space-y-4">
               <CountryStatsTable data={getCountryStatsData('all')} title="国家统计 - 全部站点" />
               <CountryStatsTable data={getCountryStatsData('vapsoloBrand')} title="国家统计 - Vapsolo 站点" variant="vapsolo" />
@@ -1027,7 +1261,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
 
           {/* ========== SPU 排行板块 ========== */}
           <section>
-            <h2 className="text-lg font-semibold text-muted-foreground mb-4 pb-2 border-b">📦 SPU 排行</h2>
+            <h2 id="pdf-section-spu" className="text-lg font-semibold text-muted-foreground mb-4 pb-2 border-b">📦 SPU 排行</h2>
             <div className="space-y-4">
               <SpuRankingTable data={getSpuRankingData('all')} title="SPU 排行 - 全部站点" showTopN={20} />
               <SpuRankingTable data={getSpuRankingData('vapsoloBrand')} title="SPU 排行 - Vapsolo 站点" showTopN={20} variant="vapsolo" />
@@ -1042,12 +1276,12 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
 
           {/* ========== 趋势分析板块 ========== */}
           <section>
-            <h2 className="text-lg font-semibold text-muted-foreground mb-4 pb-2 border-b">📈 趋势分析</h2>
+            <h2 id="pdf-section-trend" className="text-lg font-semibold text-muted-foreground mb-4 pb-2 border-b">📈 趋势分析</h2>
             <div className="space-y-4">
               <DailyTrendChart
                 currentData={reportData.all.dailyTrends}
                 previousData={reportData.all.previousDailyTrends || []}
-                title={isMonthMode ? "日趋势对比 - 全部站点（本月 vs 上月）" : "日趋势对比 - 全部站点（本周 vs 上周）"}
+                title={isQuarterMode ? "日趋势对比 - 全部站点（本季度 vs 上季度）" : (isMonthMode ? "日趋势对比 - 全部站点（本月 vs 上月）" : "日趋势对比 - 全部站点（本周 vs 上周）")}
               />
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <DailyTrendChart
@@ -1099,7 +1333,7 @@ export default function VapsoloWeeklyReport({ initialMode = 'weekly' }: VapsoloR
           <Card>
             <CardContent className="text-center py-16">
               <p className="text-sm text-muted-foreground">
-                {isMonthMode ? '该月暂无数据' : '该周暂无数据'}
+                {isQuarterMode ? '该季度暂无数据' : (isMonthMode ? '该月暂无数据' : '该周暂无数据')}
               </p>
             </CardContent>
           </Card>

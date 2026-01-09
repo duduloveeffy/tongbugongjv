@@ -120,7 +120,8 @@ export function DailyTrendChart({
           {/* 订单数趋势 */}
           <div className="bg-white border rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3">订单数趋势</h3>
-            <ResponsiveContainer width="100%" height={chartHeight}>
+            <div style={{ width: '100%', height: chartHeight }}>
+            <ResponsiveContainer width="100%" height="100%">
               {chartType === 'line' ? (
                 <LineChart data={mergedData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -158,12 +159,14 @@ export function DailyTrendChart({
                 </BarChart>
               )}
             </ResponsiveContainer>
+            </div>
           </div>
 
           {/* 销售量趋势 */}
           <div className="bg-white border rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3">销售量趋势</h3>
-            <ResponsiveContainer width="100%" height={chartHeight}>
+            <div style={{ width: '100%', height: chartHeight }}>
+            <ResponsiveContainer width="100%" height="100%">
               {chartType === 'line' ? (
                 <LineChart data={mergedData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -201,12 +204,14 @@ export function DailyTrendChart({
                 </BarChart>
               )}
             </ResponsiveContainer>
+            </div>
           </div>
 
           {/* 销售额趋势 */}
           <div className="bg-white border rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3">销售额趋势</h3>
-            <ResponsiveContainer width="100%" height={chartHeight}>
+            <div style={{ width: '100%', height: chartHeight }}>
+            <ResponsiveContainer width="100%" height="100%">
               {chartType === 'line' ? (
                 <LineChart data={mergedData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -244,6 +249,7 @@ export function DailyTrendChart({
                 </BarChart>
               )}
             </ResponsiveContainer>
+            </div>
           </div>
         </div>
       </CardContent>
