@@ -184,25 +184,46 @@ async function syncSku(
       },
     });
 
+    // 🔍 诊断：记录响应详情
+    const responseText = await searchResponse.text();
+    console.log(`[syncSku 诊断] ${sku} API响应:`, {
+      httpStatus: searchResponse.status,
+      contentType: searchResponse.headers.get('content-type'),
+      bodyLength: responseText.length,
+      bodyPreview: responseText.substring(0, 200),
+    });
+
     if (!searchResponse.ok) {
-      // 诊断日志：显示请求详情
       console.error(`[syncSku 诊断] ${sku} 搜索失败:`, {
         siteUrl: cleanUrl,
         siteId,
         apiKeyPrefix: consumerKey.substring(0, 10),
         httpStatus: searchResponse.status,
+        responseBody: responseText.substring(0, 500),
       });
       return { success: false, error: `搜索产品失败: HTTP ${searchResponse.status}` };
     }
 
-    const products = await searchResponse.json();
+    // 解析 JSON
+    let products;
+    try {
+      products = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`[syncSku 诊断] ${sku} JSON解析失败:`, {
+        error: parseError instanceof Error ? parseError.message : 'Unknown',
+        responseBody: responseText.substring(0, 500),
+      });
+      return { success: false, error: `JSON解析失败` };
+    }
+
     if (!products || products.length === 0) {
-      // 诊断日志：产品不存在时显示完整信息
       console.error(`[syncSku 诊断] ${sku} 产品不存在:`, {
         siteUrl: cleanUrl,
         siteId,
         apiKeyPrefix: consumerKey.substring(0, 10),
         searchUrl,
+        productsType: typeof products,
+        productsValue: JSON.stringify(products),
       });
       return { success: false, error: `产品不存在 (站点: ${cleanUrl})` };
     }
