@@ -591,7 +591,10 @@ export async function GET(request: NextRequest) {
     }
 
     // 7. 获取产品缓存状态（同时获取库存数量用于低库存同步）
+    // 同时查询 products 表和 product_variations 表，确保变体产品也能被找到
     console.log(`[SingleSite ${batchId}] 开始查询产品缓存...`);
+
+    // 查询简单产品
     const { data: productCache, error: cacheError } = await supabase
       .from('products')
       .select('sku, stock_status, stock_quantity')
@@ -601,8 +604,20 @@ export async function GET(request: NextRequest) {
       console.error(`[SingleSite ${batchId}] 产品缓存查询失败:`, cacheError);
     }
 
+    // 查询变体产品（通过 products 表关联获取 site_id）
+    const { data: variationCache, error: variationCacheError } = await supabase
+      .from('product_variations')
+      .select('sku, stock_status, stock_quantity, product_id, products!inner(site_id)')
+      .eq('products.site_id', siteId);
+
+    if (variationCacheError) {
+      console.error(`[SingleSite ${batchId}] 变体产品缓存查询失败:`, variationCacheError);
+    }
+
     const productStatus = new Map<string, string>();
     const productQuantity = new Map<string, number | null>(); // WooCommerce 当前库存数量
+
+    // 添加简单产品
     productCache?.forEach(p => {
       if (p.sku) {
         productStatus.set(p.sku, p.stock_status);
@@ -610,7 +625,15 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    console.log(`[SingleSite ${batchId}] 产品缓存: ${productStatus.size} 个`);
+    // 添加变体产品
+    variationCache?.forEach(v => {
+      if (v.sku) {
+        productStatus.set(v.sku, v.stock_status);
+        productQuantity.set(v.sku, v.stock_quantity);
+      }
+    });
+
+    console.log(`[SingleSite ${batchId}] 产品缓存: 简单产品=${productCache?.length || 0}, 变体产品=${variationCache?.length || 0}, 总计=${productStatus.size} 个`);
 
     // 7.1 收集所有需要检测的 WooCommerce SKU
     const allWooSkus: string[] = [];
