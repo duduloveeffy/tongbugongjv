@@ -176,8 +176,8 @@ async function fetchFromWooCommerce(
     latencies: [] as number[]
   };
 
-  // 并发配置：每批20个并发，避免API限流
-  const concurrency = 20;
+  // 并发配置：每批10个并发，降低以避免API限流
+  const concurrency = 10;
   const batches: string[][] = [];
   for (let i = 0; i < skus.length; i += concurrency) {
     batches.push(skus.slice(i, i + concurrency));
@@ -309,9 +309,9 @@ async function fetchFromWooCommerce(
 
     console.log(`[Product Detection] 批次 ${i + 1}/${batches.length} 完成 (${batch.length}个SKU, 批次耗时: ${batchLatency}ms, 平均延迟: ${avgLatency}ms)`);
 
-    // 批次之间添加小延迟，避免API限流
+    // 批次之间添加延迟，避免API限流（300ms 以应对 WooCommerce 限流）
     if (i < batches.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   }
 

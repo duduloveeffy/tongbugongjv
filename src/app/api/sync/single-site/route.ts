@@ -743,6 +743,10 @@ export async function GET(request: NextRequest) {
       }
 
       console.log(`[SingleSite ${batchId}] API 检测完成，产品状态总数: ${productStatus.size} 个`);
+
+      // 检测完成后添加 1 秒冷却期，让 WooCommerce API 恢复
+      console.log(`[SingleSite ${batchId}] API 冷却期: 等待 1 秒...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     // 7.3 低库存 SKU 实时库存拉取（防超卖）
@@ -814,9 +818,9 @@ export async function GET(request: NextRequest) {
           console.warn(`[SingleSite ${batchId}] 低库存批次查询失败:`, error);
         }
 
-        // 批次间延迟
+        // 批次间延迟（300ms 以避免 API 限流）
         if (i + batchSize < lowStockSkus.length) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
 
@@ -838,6 +842,10 @@ export async function GET(request: NextRequest) {
       }
 
       console.log(`[SingleSite ${batchId}] 低库存实时库存拉取完成`);
+
+      // 低库存拉取完成后添加 1 秒冷却期
+      console.log(`[SingleSite ${batchId}] API 冷却期: 等待 1 秒...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     // 8. 执行同步
@@ -858,6 +866,9 @@ export async function GET(request: NextRequest) {
       const inCache = productStatus.get(debugSku);
       console.log(`[SingleSite ${batchId}] 诊断 ${debugSku}: 库存=${inInventory ? calculateNetStock(inInventory) : '无'}, 映射=${inMapping ? inMapping.join(',') : '无'}, 缓存状态=${inCache || '无'}`);
     }
+
+    // 同步节流延迟（每次同步后等待，避免 API 限流）
+    const SYNC_DELAY = 200; // 每次同步后延迟 200ms
 
     for (const item of inventoryData) {
       const sku = item.产品代码;
@@ -925,6 +936,9 @@ export async function GET(request: NextRequest) {
 
         // 执行同步（传入 stockQuantity 参数）
         const result = await syncSku(wooSku, targetStatus, site.url, site.api_key, site.api_secret, siteId, syncStockQuantity);
+
+        // 每次同步后延迟，避免 API 限流
+        await new Promise(resolve => setTimeout(resolve, SYNC_DELAY));
 
         if (result.success) {
           if (syncStockQuantity !== undefined) {
