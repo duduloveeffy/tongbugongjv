@@ -177,7 +177,11 @@ async function syncSku(
     // 搜索产品（会返回简单产品或变体产品）
     const searchUrl = `${cleanUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}`;
     const searchResponse = await fetch(searchUrl, {
-      headers: { 'Authorization': `Basic ${auth}` }
+      method: 'GET',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
     });
 
     if (!searchResponse.ok) {
