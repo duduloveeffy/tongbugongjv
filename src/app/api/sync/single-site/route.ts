@@ -175,67 +175,89 @@ async function syncSku(
     const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
 
     // 搜索产品（会返回简单产品或变体产品）
+    // 添加重试机制，因为前面的批量请求可能触发了 API 限流
     const searchUrl = `${cleanUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}`;
 
-    // 🔍 诊断：验证传入的站点参数
-    console.log(`[syncSku] ${sku} 调用参数:`, {
-      siteUrl: cleanUrl,
-      siteId,
-      apiKeyPrefix: consumerKey?.substring(0, 15),
-      apiKeyLength: consumerKey?.length,
-      apiSecretLength: consumerSecret?.length,
-      完整请求URL: searchUrl,
-    });
-    const searchResponse = await fetch(searchUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    let products: any[] = [];
+    let lastError = '';
+    const maxRetries = 2;
 
-    // 🔍 诊断：记录响应详情
-    const responseText = await searchResponse.text();
-    console.log(`[syncSku 诊断] ${sku} API响应:`, {
-      httpStatus: searchResponse.status,
-      contentType: searchResponse.headers.get('content-type'),
-      bodyLength: responseText.length,
-      bodyPreview: responseText.substring(0, 200),
-    });
-
-    if (!searchResponse.ok) {
-      console.error(`[syncSku 诊断] ${sku} 搜索失败:`, {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // 🔍 诊断：验证传入的站点参数
+      console.log(`[syncSku] ${sku} 调用参数 (尝试 ${attempt}/${maxRetries}):`, {
         siteUrl: cleanUrl,
         siteId,
-        apiKeyPrefix: consumerKey.substring(0, 10),
+        apiKeyPrefix: consumerKey?.substring(0, 15),
+        完整请求URL: searchUrl,
+      });
+
+      const searchResponse = await fetch(searchUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      // 🔍 诊断：记录响应详情
+      const responseText = await searchResponse.text();
+      console.log(`[syncSku 诊断] ${sku} API响应 (尝试 ${attempt}):`, {
         httpStatus: searchResponse.status,
-        responseBody: responseText.substring(0, 500),
+        contentType: searchResponse.headers.get('content-type'),
+        bodyLength: responseText.length,
+        bodyPreview: responseText.substring(0, 200),
       });
-      return { success: false, error: `搜索产品失败: HTTP ${searchResponse.status}` };
-    }
 
-    // 解析 JSON
-    let products;
-    try {
-      products = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error(`[syncSku 诊断] ${sku} JSON解析失败:`, {
-        error: parseError instanceof Error ? parseError.message : 'Unknown',
-        responseBody: responseText.substring(0, 500),
-      });
-      return { success: false, error: `JSON解析失败` };
-    }
+      if (!searchResponse.ok) {
+        lastError = `搜索产品失败: HTTP ${searchResponse.status}`;
+        console.error(`[syncSku 诊断] ${sku} 搜索失败 (尝试 ${attempt}):`, {
+          httpStatus: searchResponse.status,
+          responseBody: responseText.substring(0, 500),
+        });
+        // 等待后重试
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        return { success: false, error: lastError };
+      }
 
-    if (!products || products.length === 0) {
-      console.error(`[syncSku 诊断] ${sku} 产品不存在:`, {
-        siteUrl: cleanUrl,
-        siteId,
-        apiKeyPrefix: consumerKey.substring(0, 10),
-        searchUrl,
-        productsType: typeof products,
-        productsValue: JSON.stringify(products),
-      });
-      return { success: false, error: `产品不存在 (站点: ${cleanUrl})` };
+      // 解析 JSON
+      try {
+        products = JSON.parse(responseText);
+      } catch (parseError) {
+        lastError = `JSON解析失败`;
+        console.error(`[syncSku 诊断] ${sku} JSON解析失败:`, {
+          error: parseError instanceof Error ? parseError.message : 'Unknown',
+          responseBody: responseText.substring(0, 500),
+        });
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        return { success: false, error: lastError };
+      }
+
+      // 如果返回空数组，等待后重试（可能是 API 限流导致）
+      if (!products || products.length === 0) {
+        lastError = `产品不存在 (站点: ${cleanUrl})`;
+        console.warn(`[syncSku] ${sku} 返回空数组 (尝试 ${attempt}/${maxRetries})，可能是 API 限流`);
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1500)); // 等待更长时间
+          continue;
+        }
+        console.error(`[syncSku 诊断] ${sku} 产品不存在:`, {
+          siteUrl: cleanUrl,
+          siteId,
+          searchUrl,
+          productsType: typeof products,
+          productsValue: JSON.stringify(products),
+        });
+        return { success: false, error: lastError };
+      }
+
+      // 成功获取到产品，跳出重试循环
+      break;
     }
 
     const product = products[0];
