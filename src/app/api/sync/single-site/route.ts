@@ -434,6 +434,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: `站点 ${site.name} 已禁用`, skipped: true });
     }
 
+    // 🔍 诊断：输出完整的站点凭据信息（脱敏）
+    console.log(`[SingleSite ${batchId}] ========== 站点凭据诊断 ==========`);
+    console.log(`[SingleSite ${batchId}] 站点名称: ${site.name}`);
+    console.log(`[SingleSite ${batchId}] 站点ID: ${site.id}`);
+    console.log(`[SingleSite ${batchId}] 站点URL: ${site.url}`);
+    console.log(`[SingleSite ${batchId}] API Key: ${site.api_key?.substring(0, 15)}...${site.api_key?.slice(-4)}`);
+    console.log(`[SingleSite ${batchId}] API Secret: ${site.api_secret?.substring(0, 10)}...${site.api_secret?.slice(-4)}`);
+    console.log(`[SingleSite ${batchId}] ===================================`);
+
     console.log(`[SingleSite ${batchId}] 同步站点: ${site.name}`);
 
     // 3. 拉取 ERP 数据
@@ -855,7 +864,18 @@ export async function GET(request: NextRequest) {
         } else {
           failed++;
           details.push({ sku: wooSku, action: 'failed', error: result.error });
-          console.error(`[SingleSite ${batchId}] ${wooSku} 同步失败: ${result.error}`);
+          // 🔍 诊断：同步失败时输出完整上下文
+          console.error(`[SingleSite ${batchId}] ========== 同步失败诊断 ==========`);
+          console.error(`[SingleSite ${batchId}] SKU: ${wooSku} (ERP: ${sku})`);
+          console.error(`[SingleSite ${batchId}] 错误: ${result.error}`);
+          console.error(`[SingleSite ${batchId}] 目标状态: ${targetStatus}, 同步数量: ${syncStockQuantity ?? '无'}`);
+          console.error(`[SingleSite ${batchId}] ERP净库存: ${netStock}`);
+          console.error(`[SingleSite ${batchId}] 缓存状态: ${currentStatus}`);
+          console.error(`[SingleSite ${batchId}] 缓存数量: ${productQuantity.get(wooSku) ?? 'null'}`);
+          console.error(`[SingleSite ${batchId}] 站点URL: ${site.url}`);
+          console.error(`[SingleSite ${batchId}] 站点ID: ${siteId}`);
+          console.error(`[SingleSite ${batchId}] SKU映射: ${skuMappings[sku]?.join(',') || '无映射'}`);
+          console.error(`[SingleSite ${batchId}] ===================================`);
         }
       }
     }
