@@ -174,6 +174,9 @@ async function syncSku(
     const cleanUrl = siteUrl.replace(/\/$/, '');
     const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
 
+    // 搜索产品（会返回简单产品或变体产品）
+    const searchUrl = `${cleanUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}`;
+
     // 🔍 诊断：验证传入的站点参数
     console.log(`[syncSku] ${sku} 调用参数:`, {
       siteUrl: cleanUrl,
@@ -181,10 +184,8 @@ async function syncSku(
       apiKeyPrefix: consumerKey?.substring(0, 15),
       apiKeyLength: consumerKey?.length,
       apiSecretLength: consumerSecret?.length,
+      完整请求URL: searchUrl,
     });
-
-    // 搜索产品（会返回简单产品或变体产品）
-    const searchUrl = `${cleanUrl}/wp-json/wc/v3/products?sku=${encodeURIComponent(sku)}`;
     const searchResponse = await fetch(searchUrl, {
       method: 'GET',
       headers: {
