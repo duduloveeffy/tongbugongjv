@@ -882,6 +882,10 @@ export async function GET(request: NextRequest) {
 
         if (!currentStatus) {
           // 缓存和 API 都没有找到该产品，跳过
+          // 诊断：输出 TWP5 相关 SKU 的跳过原因
+          if (wooSku.startsWith('TWP5')) {
+            console.log(`[SingleSite ${batchId}] TWP5 诊断: ${wooSku} 跳过 - 产品不在缓存中 (productStatus.has=${productStatus.has(wooSku)})`);
+          }
           skipped++;
           continue;
         }
@@ -930,6 +934,19 @@ export async function GET(request: NextRequest) {
         }
 
         if (!needSync || !targetStatus) {
+          // 诊断：输出 TWP5 相关 SKU 的跳过原因
+          if (wooSku.startsWith('TWP5')) {
+            const wcQuantity = productQuantity.get(wooSku);
+            console.log(`[SingleSite ${batchId}] TWP5 诊断: ${wooSku} 跳过 - 无需同步`, {
+              ERP库存: netStock,
+              WC状态: currentStatus,
+              WC数量: wcQuantity,
+              needSync,
+              targetStatus,
+              sync_to_instock: config.sync_to_instock,
+              sync_to_outofstock: config.sync_to_outofstock,
+            });
+          }
           skipped++;
           continue;
         }
