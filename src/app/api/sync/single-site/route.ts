@@ -181,12 +181,26 @@ async function syncSku(
     });
 
     if (!searchResponse.ok) {
+      // 诊断日志：显示请求详情
+      console.error(`[syncSku 诊断] ${sku} 搜索失败:`, {
+        siteUrl: cleanUrl,
+        siteId,
+        apiKeyPrefix: consumerKey.substring(0, 10),
+        httpStatus: searchResponse.status,
+      });
       return { success: false, error: `搜索产品失败: HTTP ${searchResponse.status}` };
     }
 
     const products = await searchResponse.json();
     if (!products || products.length === 0) {
-      return { success: false, error: '产品不存在' };
+      // 诊断日志：产品不存在时显示完整信息
+      console.error(`[syncSku 诊断] ${sku} 产品不存在:`, {
+        siteUrl: cleanUrl,
+        siteId,
+        apiKeyPrefix: consumerKey.substring(0, 10),
+        searchUrl,
+      });
+      return { success: false, error: `产品不存在 (站点: ${cleanUrl})` };
     }
 
     const product = products[0];
