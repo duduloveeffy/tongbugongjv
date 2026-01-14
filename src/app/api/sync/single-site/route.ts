@@ -947,6 +947,14 @@ export async function GET(request: NextRequest) {
               sync_to_outofstock: config.sync_to_outofstock,
             });
           }
+          // 诊断：输出所有 ERP 有货但被跳过的 SKU（应同步为有货但没有同步）
+          if (netStock > 0 && currentStatus === 'outofstock') {
+            console.log(`[SingleSite ${batchId}] ⚠️ 异常跳过: ${wooSku} ERP有货(${netStock})但WC无货，应同步但被跳过`, {
+              isInStock,
+              instockThreshold: getSkuInstockThreshold(sku, syncRules),
+              sync_to_instock: config.sync_to_instock,
+            });
+          }
           skipped++;
           continue;
         }
