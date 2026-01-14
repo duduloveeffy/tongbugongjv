@@ -15,9 +15,7 @@ export async function GET(request: NextRequest) {
 
   // 要查询的 SKU 列表
   const targetSkus = [
-    'SU-17', 'VS2-1117', 'VS5-1117',
-    'SU-13', 'VS2-1113', 'VS5-1113',
-    'QU5-01', 'QU5-09'
+    'QU5-10', 'QU2-07', 'QU5-07', 'TWP5-01', 'TWP5-19'
   ];
 
   // 查询 products 表
