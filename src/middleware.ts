@@ -26,6 +26,8 @@ const PUBLIC_ROUTES = [
   '/api/wc-update-stock',
   // H3Yun diagnostic API
   '/api/h3yun/ping',
+  // Debug API
+  '/api/debug',
 ];
 
 // Routes that are view-only (no sensitive data)
