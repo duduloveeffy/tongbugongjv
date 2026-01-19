@@ -28,6 +28,8 @@ const PUBLIC_ROUTES = [
   '/api/h3yun/ping',
   // Debug API
   '/api/debug',
+  // Products cache sync API
+  '/api/sync/products-cache',
 ];
 
 // Routes that are view-only (no sensitive data)
