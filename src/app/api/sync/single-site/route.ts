@@ -348,7 +348,7 @@ async function syncSku(
 }
 
 /**
- * 生成批次号（基于 slot=0 的触发时间，同一轮同步共享同一批次号）
+ * 生成批次号（基于 slot=0 的触发时间，��一轮同步共享同一批次号）
  *
  * 原理：根据当前时间和 slot 号，反推 slot=0 的触发时间
  * - slot=0 在 :00 触发，slot=1 在 :05 触发，以此类推
@@ -661,12 +661,13 @@ export async function GET(request: NextRequest) {
     }
 
     const productStatus = new Map<string, string>();
-    const productQuantity = new Map<string, number | null>(); // WooCommerce 当前库存数量
+    const supabaseQuantity = new Map<string, number | null>(); // Supabase 缓存库存数量
+    const wcRealTimeQuantity = new Map<string, number | null>(); // WC 实时库存数量（低库存 SKU 才会填充）
 
     productCache?.forEach(p => {
       if (p.sku) {
         productStatus.set(p.sku, p.stock_status);
-        productQuantity.set(p.sku, p.stock_quantity);
+        supabaseQuantity.set(p.sku, p.stock_quantity);
       }
     });
 
@@ -729,34 +730,61 @@ export async function GET(request: NextRequest) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    // 7.3 低库存 SKU 实时库存拉取（防超卖）
-    // 筛选出 0 < ERP库存 ≤ 10 且 WC 状态为 instock 的 SKU，批量获取 WC 实时库存
+    // 7.3 低库存 SKU 实时库存拉取（防超卖 + 数据断层修复）
+    // 筛选条件扩展：
+    // 1. ERP库存低（0 < ERP ≤ 10）且 Supabase 状态为 instock
+    // 2. Supabase缓存库存低（0-10）且状态为 instock（修复数据断层：WC被买空但缓存未更新）
+    // 3. Supabase缓存库存为null但状态为instock（可能数据不完整）
     const lowStockSkus: string[] = [];
     for (const item of inventoryData) {
       const sku = item.产品代码;
       const netStock = calculateNetStock(item);
       const instockThreshold = getSkuInstockThreshold(sku, syncRules);
 
-      // 只处理无自定义阈值、低库存、且 WC 状态为 instock 的 SKU
-      if (instockThreshold === 0 && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD) {
+      // 只处理无自定义阈值的 SKU
+      if (instockThreshold === 0) {
         const wooSkus = skuMappings[sku] || [sku];
         for (const wooSku of wooSkus) {
           const currentStatus = productStatus.get(wooSku);
-          if (currentStatus === 'instock' && !lowStockSkus.includes(wooSku)) {
+          const sbQuantity = supabaseQuantity.get(wooSku);
+
+          // 跳过非 instock 状态（缓存已经是 outofstock 的不需要再拉取）
+          if (currentStatus !== 'instock') continue;
+          // 跳过已添加的 SKU
+          if (lowStockSkus.includes(wooSku)) continue;
+
+          // 条件1: ERP库存低 (原有逻辑)
+          const erpLowStock = netStock > 0 && netStock <= LOW_STOCK_THRESHOLD;
+
+          // 条件2: Supabase缓存库存低（修复数据断层）
+          // 场景：ERP库存=80，Supabase库存=1，WC实际=outofstock
+          // 原因：客户下单消耗了WC库存，但变化没同步回Supabase
+          const supabaseLowStock = sbQuantity !== null && sbQuantity !== undefined && sbQuantity >= 0 && sbQuantity <= LOW_STOCK_THRESHOLD;
+
+          // 条件3: Supabase缓存库存为null但状态为instock（数据可能不完整）
+          const supabaseNullButInstock = (sbQuantity === null || sbQuantity === undefined) && currentStatus === 'instock';
+
+          if (erpLowStock || supabaseLowStock || supabaseNullButInstock) {
             lowStockSkus.push(wooSku);
+            // 调试日志：记录为什么这个 SKU 被加入低库存列表
+            if (!erpLowStock) {
+              console.log(`[SingleSite ${batchId}] 数据断层检测: ${wooSku} - ERP=${netStock}, Supabase=${sbQuantity ?? 'null'}, 原因=${supabaseLowStock ? 'Supabase低库存' : 'Supabase为null'}`);
+            }
           }
         }
       }
     }
 
     if (lowStockSkus.length > 0) {
-      console.log(`[SingleSite ${batchId}] 低库存 SKU 实时库存拉取: ${lowStockSkus.length} 个`);
+      console.log(`[SingleSite ${batchId}] 低库存/数据断层 SKU 实时状态拉取: ${lowStockSkus.length} 个`);
 
       const cleanUrl = site.url.replace(/\/$/, '');
       const auth = Buffer.from(`${site.api_key}:${site.api_secret}`).toString('base64');
 
-      // 收集需要更新到 Supabase 的数据
-      const supabaseUpdates: Array<{ sku: string; stock_quantity: number }> = [];
+      // 收集需要更新到 Supabase 的数据（包含 stock_status 和 stock_quantity）
+      const supabaseUpdates: Array<{ sku: string; stock_quantity: number; stock_status: string }> = [];
+      // 用于更新内存中的 productStatus（供后续同步判断使用）
+      const wcRealTimeStatus = new Map<string, string>();
 
       // 分批处理，每批 20 个（避免 URL 过长）
       const batchSize = 20;
@@ -775,24 +803,43 @@ export async function GET(request: NextRequest) {
           if (response.ok) {
             const products = await response.json();
             let updated = 0;
+            let statusChanged = 0; // 记录状态发生变化的数量
             for (const product of products) {
-              if (product.sku && product.stock_quantity !== undefined) {
-                productQuantity.set(product.sku, product.stock_quantity);
-                supabaseUpdates.push({ sku: product.sku, stock_quantity: product.stock_quantity });
+              if (product.sku) {
+                const quantity = product.stock_quantity ?? 0;
+                const status = product.stock_status || 'instock';
+                wcRealTimeQuantity.set(product.sku, quantity);
+                wcRealTimeStatus.set(product.sku, status);
+                supabaseUpdates.push({ sku: product.sku, stock_quantity: quantity, stock_status: status });
                 updated++;
+                // 检查状态是否与缓存不一致
+                const cachedStatus = productStatus.get(product.sku);
+                if (cachedStatus && cachedStatus !== status) {
+                  statusChanged++;
+                  console.log(`[SingleSite ${batchId}] 状态不一致检测: ${product.sku} - 缓存=${cachedStatus}, WC实时=${status}, 数量=${quantity}`);
+                }
               }
               // 处理变体产品
               if (product.variations && Array.isArray(product.variations)) {
                 for (const variation of product.variations) {
-                  if (variation.sku && variation.stock_quantity !== undefined) {
-                    productQuantity.set(variation.sku, variation.stock_quantity);
-                    supabaseUpdates.push({ sku: variation.sku, stock_quantity: variation.stock_quantity });
+                  if (variation.sku) {
+                    const quantity = variation.stock_quantity ?? 0;
+                    const status = variation.stock_status || 'instock';
+                    wcRealTimeQuantity.set(variation.sku, quantity);
+                    wcRealTimeStatus.set(variation.sku, status);
+                    supabaseUpdates.push({ sku: variation.sku, stock_quantity: quantity, stock_status: status });
                     updated++;
+                    // 检查状态是否与缓存不一致
+                    const cachedStatus = productStatus.get(variation.sku);
+                    if (cachedStatus && cachedStatus !== status) {
+                      statusChanged++;
+                      console.log(`[SingleSite ${batchId}] 状态不一致检测: ${variation.sku} - 缓存=${cachedStatus}, WC实时=${status}, 数量=${quantity}`);
+                    }
                   }
                 }
               }
             }
-            console.log(`[SingleSite ${batchId}] 低库存批次 ${Math.floor(i / batchSize) + 1}: 查询 ${batch.length} 个，更新 ${updated} 个`);
+            console.log(`[SingleSite ${batchId}] 低库存批次 ${Math.floor(i / batchSize) + 1}: 查询 ${batch.length} 个，更新 ${updated} 个${statusChanged > 0 ? `，状态变化 ${statusChanged} 个` : ''}`);
           }
         } catch (error) {
           console.warn(`[SingleSite ${batchId}] 低库存批次查询失败:`, error);
@@ -804,24 +851,36 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 批量更新 Supabase 缓存
+      // 批量更新 Supabase 缓存（同时更新 stock_status 和 stock_quantity）
       if (supabaseUpdates.length > 0) {
         try {
           const updatePromises = supabaseUpdates.map(item =>
             supabase
               .from('products')
-              .update({ stock_quantity: item.stock_quantity, synced_at: new Date().toISOString() })
+              .update({
+                stock_quantity: item.stock_quantity,
+                stock_status: item.stock_status,
+                synced_at: new Date().toISOString()
+              })
               .eq('site_id', siteId)
               .eq('sku', item.sku)
           );
           await Promise.all(updatePromises);
-          console.log(`[SingleSite ${batchId}] 低库存实时库存已同步到 Supabase: ${supabaseUpdates.length} 个`);
+          console.log(`[SingleSite ${batchId}] 低库存实时状态已同步到 Supabase: ${supabaseUpdates.length} 个`);
         } catch (cacheError) {
           console.warn(`[SingleSite ${batchId}] 低库存缓存更新失败:`, cacheError);
         }
+
+        // 关键：更新内存中的 productStatus，供后续同步判断使用
+        // 这样同步判断阶段就能看到 WC 的实时状态
+        for (const item of supabaseUpdates) {
+          productStatus.set(item.sku, item.stock_status);
+          supabaseQuantity.set(item.sku, item.stock_quantity);
+        }
+        console.log(`[SingleSite ${batchId}] 内存缓存已更新: ${supabaseUpdates.length} 个 SKU`);
       }
 
-      console.log(`[SingleSite ${batchId}] 低库存实时库存拉取完成`);
+      console.log(`[SingleSite ${batchId}] 低库存/数据断层实时状态拉取完成`);
 
       // 低库存拉取完成后添加 1 秒冷却期
       console.log(`[SingleSite ${batchId}] API 冷却期: 等待 1 秒...`);
@@ -884,18 +943,33 @@ export async function GET(request: NextRequest) {
           // 情况2：WC有货且本地有货但低库存(1-10) → 同步具体数量（仅针对无自定义阈值的SKU）
           // 注意：有自定义阈值的 SKU 不做低库存数量同步，因为它们已经用阈值控制了
           if (instockThreshold === 0) {
-            // 防超卖：取 ERP 库存和 WC 库存的最小值
-            // 因为 WC 可能有客户下单导致库存减少，而 ERP 不会实时同步这个变化
-            const wcQuantity = productQuantity.get(wooSku);
-            const effectiveQuantity = wcQuantity !== null && wcQuantity !== undefined && wcQuantity < netStock
-              ? wcQuantity
-              : netStock;
+            // 防超卖：取 ERP库存 和 WC实时库存 的最小值
+            // Supabase 只用于触发检测，不参与最终计算（可能是过时的低值）
+            const wcQuantity = wcRealTimeQuantity.get(wooSku); // WC 实时库存（可能为空，如果没有拉取）
 
-            // 只有当计算出的数量与 WC 当前数量不同时才需要同步
-            if (wcQuantity === null || wcQuantity === undefined || effectiveQuantity !== wcQuantity) {
+            // 计算有效库存：ERP 和 WC实时 取最小
+            let effectiveQuantity = netStock;
+            if (wcQuantity !== null && wcQuantity !== undefined) {
+              effectiveQuantity = Math.min(netStock, wcQuantity);
+            }
+
+            console.log(`[SingleSite ${batchId}] 低库存防超卖 ${wooSku}: ERP=${netStock}, WC实时=${wcQuantity ?? 'null'} → 有效库存=${effectiveQuantity}`);
+
+            // 判断最终应该同步的状态和数量
+            if (effectiveQuantity <= 0) {
+              // WC实时库存 <= 0，同步为 outofstock
               needSync = true;
-              targetStatus = 'instock'; // 保持有货状态，但更新数量
-              syncStockQuantity = effectiveQuantity;
+              targetStatus = 'outofstock';
+              console.log(`[SingleSite ${batchId}] ${wooSku}: 有效库存 ${effectiveQuantity} <= 0，同步为 outofstock`);
+            } else {
+              // 有效库存 > 0，同步具体数量
+              // 只有当计算出的数量与 WC 当前数量不同时才需要同步
+              const currentWcQuantity = wcQuantity ?? supabaseQuantity.get(wooSku); // 优先用实时库存，没有则用缓存
+              if (currentWcQuantity === null || currentWcQuantity === undefined || effectiveQuantity !== currentWcQuantity) {
+                needSync = true;
+                targetStatus = 'instock';
+                syncStockQuantity = effectiveQuantity;
+              }
             }
           }
         } else if (currentStatus === 'outofstock' && isInStock && config.sync_to_instock) {
@@ -945,7 +1019,8 @@ export async function GET(request: NextRequest) {
           console.error(`[SingleSite ${batchId}] 目标状态: ${targetStatus}, 同步数量: ${syncStockQuantity ?? '无'}`);
           console.error(`[SingleSite ${batchId}] ERP净库存: ${netStock}`);
           console.error(`[SingleSite ${batchId}] 缓存状态: ${currentStatus}`);
-          console.error(`[SingleSite ${batchId}] 缓存数量: ${productQuantity.get(wooSku) ?? 'null'}`);
+          console.error(`[SingleSite ${batchId}] Supabase缓存数量: ${supabaseQuantity.get(wooSku) ?? 'null'}`);
+          console.error(`[SingleSite ${batchId}] WC实时数量: ${wcRealTimeQuantity.get(wooSku) ?? 'null'}`);
           console.error(`[SingleSite ${batchId}] 站点URL: ${site.url}`);
           console.error(`[SingleSite ${batchId}] 站点ID: ${siteId}`);
           console.error(`[SingleSite ${batchId}] SKU映射: ${skuMappings[sku]?.join(',') || '无映射'}`);
