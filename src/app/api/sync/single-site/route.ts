@@ -806,11 +806,13 @@ export async function GET(request: NextRequest) {
             let statusChanged = 0; // 记录状态发生变化的数量
             for (const product of products) {
               if (product.sku) {
-                const quantity = product.stock_quantity ?? 0;
+                // 保留 null 值，null 表示"不管理库存"，与 0（库存耗尽）含义不同
+                const quantity = product.stock_quantity;
                 const status = product.stock_status || 'instock';
                 wcRealTimeQuantity.set(product.sku, quantity);
                 wcRealTimeStatus.set(product.sku, status);
-                supabaseUpdates.push({ sku: product.sku, stock_quantity: quantity, stock_status: status });
+                // Supabase 更新时 null 转为 0（数据库字段要求）
+                supabaseUpdates.push({ sku: product.sku, stock_quantity: quantity ?? 0, stock_status: status });
                 updated++;
                 // 检查状态是否与缓存不一致
                 const cachedStatus = productStatus.get(product.sku);
@@ -823,11 +825,12 @@ export async function GET(request: NextRequest) {
               if (product.variations && Array.isArray(product.variations)) {
                 for (const variation of product.variations) {
                   if (variation.sku) {
-                    const quantity = variation.stock_quantity ?? 0;
+                    // 保留 null 值
+                    const quantity = variation.stock_quantity;
                     const status = variation.stock_status || 'instock';
                     wcRealTimeQuantity.set(variation.sku, quantity);
                     wcRealTimeStatus.set(variation.sku, status);
-                    supabaseUpdates.push({ sku: variation.sku, stock_quantity: quantity, stock_status: status });
+                    supabaseUpdates.push({ sku: variation.sku, stock_quantity: quantity ?? 0, stock_status: status });
                     updated++;
                     // 检查状态是否与缓存不一致
                     const cachedStatus = productStatus.get(variation.sku);
