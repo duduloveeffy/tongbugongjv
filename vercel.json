@@ -22,67 +22,67 @@
   "crons": [
     {
       "path": "/api/sync/single-site?slot=0",
-      "schedule": "0 * * * *"
+      "schedule": "0 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=1",
-      "schedule": "5 * * * *"
+      "schedule": "5 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=2",
-      "schedule": "10 * * * *"
+      "schedule": "10 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=3",
-      "schedule": "15 * * * *"
+      "schedule": "15 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=4",
-      "schedule": "20 * * * *"
+      "schedule": "20 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=5",
-      "schedule": "25 * * * *"
+      "schedule": "25 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=6",
-      "schedule": "30 * * * *"
+      "schedule": "30 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=7",
-      "schedule": "35 * * * *"
+      "schedule": "35 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=8",
-      "schedule": "40 * * * *"
+      "schedule": "40 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=9",
-      "schedule": "45 * * * *"
+      "schedule": "45 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=10",
-      "schedule": "50 * * * *"
+      "schedule": "50 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=11",
-      "schedule": "55 * * * *"
+      "schedule": "55 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=12",
-      "schedule": "2 * * * *"
+      "schedule": "2 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=13",
-      "schedule": "7 * * * *"
+      "schedule": "7 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=14",
-      "schedule": "12 * * * *"
+      "schedule": "12 0-9 * * *"
     },
     {
       "path": "/api/sync/single-site?slot=15",
-      "schedule": "17 * * * *"
+      "schedule": "17 0-9 * * *"
     }
   ]
 }

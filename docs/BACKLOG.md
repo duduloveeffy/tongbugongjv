@@ -65,7 +65,74 @@ const batchId = beijingTime.toISOString().slice(0, 13).replace(/[-T:]/g, '').sli
 
 ---
 
-### 3. 前端展示版本号
+### 3. 重构 single-site 路由（God Object 拆分）
+
+**优先级**: 中
+
+**问题描述**:
+`src/app/api/sync/single-site/route.ts` 已膨胀到 1200+ 行，承担了 13+ 个独立职责，违反单一职责原则：
+
+- 调度逻辑（slot 分配）
+- 配置读取（站点、筛选规则）
+- ERP 数据拉取（氚云 API）
+- 数据筛选（仓库/品类/SKU 前缀）
+- 仓库合并与库存计算
+- SKU 映射加载
+- 产品缓存查询（Supabase）
+- WC API 检测（缓存未命中时）
+- 低库存/数据断层处理
+- 同步判断逻辑（instock/outofstock）
+- WC API 更新
+- Supabase 缓存更新
+- 日志记录
+- 企业微信通知
+
+**影响**:
+- 难以单独测试各个模块
+- 修改一处可能影响其他功能
+- 新人理解成本高
+- 并发开发容易冲突
+
+**解决方案**:
+拆分为独立模块：
+
+```
+src/lib/sync/
+├── scheduler.ts        # Cron 调度、slot 分配
+├── erp-fetcher.ts      # 氚云数据拉取
+├── inventory-filter.ts # 筛选逻辑（仓库/品类/SKU）
+├── stock-calculator.ts # 库存计算、合并
+├── sync-executor.ts    # WC API 同步执行
+├── cache-manager.ts    # Supabase 缓存读写
+├── notification.ts     # 企业微信通知
+└── types.ts            # 共享类型定义
+
+src/app/api/sync/single-site/route.ts  # 只做编排，~100行
+```
+
+**重构后的路由示例**:
+```typescript
+export async function GET(request: NextRequest) {
+  const { siteId, batchId } = await resolveSiteFromSlot(request);
+  if (!siteId) return skipResponse();
+
+  const site = await getSiteConfig(siteId);
+  const inventory = await fetchErpInventory();
+  const filtered = applyFilters(inventory, site.filters);
+  const result = await executeSyncBatch(filtered, site);
+
+  await logSyncResult(result);
+  await sendNotification(result);
+
+  return NextResponse.json(result);
+}
+```
+
+**相关文件**: `src/app/api/sync/single-site/route.ts`
+
+---
+
+### 4. 前端展示版本号
 
 **优先级**: 低
 
