@@ -3,8 +3,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 interface SalesData {
   orderCount: number;
   salesQuantity: number;
-  orderCount30d: number;
-  salesQuantity30d: number;
+  orderCountDaysN: number;
+  salesQuantityDaysN: number;
 }
 
 export async function POST(request: NextRequest) {
@@ -44,8 +44,8 @@ export async function POST(request: NextRequest) {
       result[sku] = salesDataMap.get(sku) || {
         orderCount: 0,
         salesQuantity: 0,
-        orderCount30d: 0,
-        salesQuantity30d: 0,
+        orderCountDaysN: 0,
+        salesQuantityDaysN: 0,
       };
     });
 
@@ -153,8 +153,8 @@ function calculateSalesData(orders: any[], targetSkus: string[]): Map<string, Sa
     salesDataMap.set(sku, {
       orderCount: 0,
       salesQuantity: 0,
-      orderCount30d: 0,
-      salesQuantity30d: 0,
+      orderCountDaysN: 0,
+      salesQuantityDaysN: 0,
     });
   });
 
@@ -191,11 +191,11 @@ function calculateSalesData(orders: any[], targetSkus: string[]): Map<string, Sa
             
             // 30天内的数据
             if (isWithin30Days) {
-              salesData.salesQuantity30d += quantity;
+              salesData.salesQuantityDaysN += quantity;
               
               // 30天订单数（每个订单中的SKU只计算一次）
               if (!processedSkus30d.has(sku)) {
-                salesData.orderCount30d += 1;
+                salesData.orderCountDaysN += 1;
                 processedSkus30d.add(sku);
               }
             }

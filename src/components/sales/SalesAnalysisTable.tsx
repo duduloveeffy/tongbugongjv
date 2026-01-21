@@ -19,15 +19,15 @@ export function SalesAnalysisTable({ data, isLoading }: SalesAnalysisTableProps)
     }
 
     // Filter items with sales data
-    const itemsWithSales = data.filter(item => item.salesData && item.salesData.salesQuantity30d > 0);
+    const itemsWithSales = data.filter(item => item.salesData && item.salesData.salesQuantityDaysN > 0);
 
     // Calculate totals
-    const totalSales30d = data.reduce((sum, item) => sum + (item.salesData?.salesQuantity30d || 0), 0);
-    const totalOrders30d = data.reduce((sum, item) => sum + (item.salesData?.orderCount30d || 0), 0);
+    const totalSales30d = data.reduce((sum, item) => sum + (item.salesData?.salesQuantityDaysN || 0), 0);
+    const totalOrders30d = data.reduce((sum, item) => sum + (item.salesData?.orderCountDaysN || 0), 0);
 
     // Get top selling products
     const topProducts = [...itemsWithSales]
-      .sort((a, b) => (b.salesData?.salesQuantity30d || 0) - (a.salesData?.salesQuantity30d || 0))
+      .sort((a, b) => (b.salesData?.salesQuantityDaysN || 0) - (a.salesData?.salesQuantityDaysN || 0))
       .slice(0, 20);
 
     // Count SKUs by sales status
@@ -80,7 +80,7 @@ export function SalesAnalysisTable({ data, isLoading }: SalesAnalysisTableProps)
   }
 
   const getSalesStatus = (item: InventoryItem) => {
-    const sales30d = item.salesData?.salesQuantity30d || 0;
+    const sales30d = item.salesData?.salesQuantityDaysN || 0;
     const netStock = item.净可售库存 || 0;
 
     if (sales30d === 0) return { label: '无销量', color: 'secondary' as const };
@@ -153,25 +153,25 @@ export function SalesAnalysisTable({ data, isLoading }: SalesAnalysisTableProps)
               无销量: {salesStats.skusWithoutSales}
             </Badge>
             <Badge variant="destructive">
-              缺货: {data.filter(item => (item.salesData?.salesQuantity30d || 0) > 0 && (item.净可售库存 || 0) <= 0).length}
+              缺货: {data.filter(item => (item.salesData?.salesQuantityDaysN || 0) > 0 && (item.净可售库存 || 0) <= 0).length}
             </Badge>
             <Badge variant="outline">
               库存不足: {data.filter(item => {
-                const sales = item.salesData?.salesQuantity30d || 0;
+                const sales = item.salesData?.salesQuantityDaysN || 0;
                 const stock = item.净可售库存 || 0;
                 return sales > 0 && stock > 0 && stock < sales;
               }).length}
             </Badge>
             <Badge variant="secondary">
               正常: {data.filter(item => {
-                const sales = item.salesData?.salesQuantity30d || 0;
+                const sales = item.salesData?.salesQuantityDaysN || 0;
                 const stock = item.净可售库存 || 0;
                 return sales > 0 && stock >= sales && stock <= sales * 3;
               }).length}
             </Badge>
             <Badge variant="default">
               库存过多: {data.filter(item => {
-                const sales = item.salesData?.salesQuantity30d || 0;
+                const sales = item.salesData?.salesQuantityDaysN || 0;
                 const stock = item.净可售库存 || 0;
                 return sales > 0 && stock > sales * 3;
               }).length}
@@ -204,7 +204,7 @@ export function SalesAnalysisTable({ data, isLoading }: SalesAnalysisTableProps)
               <TableBody>
                 {salesStats.topProducts.map((item, index) => {
                   const status = getSalesStatus(item);
-                  const dailySales = (item.salesData?.salesQuantity30d || 0) / 30;
+                  const dailySales = (item.salesData?.salesQuantityDaysN || 0) / 30;
                   const stockDays = dailySales > 0 ? Math.floor((item.净可售库存 || 0) / dailySales) : 999;
 
                   return (
@@ -215,10 +215,10 @@ export function SalesAnalysisTable({ data, isLoading }: SalesAnalysisTableProps)
                         {item.产品名称}
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        {item.salesData?.salesQuantity30d || 0}
+                        {item.salesData?.salesQuantityDaysN || 0}
                       </TableCell>
                       <TableCell className="text-right">
-                        {item.salesData?.orderCount30d || 0}
+                        {item.salesData?.orderCountDaysN || 0}
                       </TableCell>
                       <TableCell className="text-right">
                         {item.净可售库存 || 0}

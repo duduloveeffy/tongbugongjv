@@ -4,8 +4,8 @@ import { getSupabaseClient, getCacheExpiryTime } from '@/lib/supabase';
 interface SalesData {
   orderCount: number;
   salesQuantity: number;
-  orderCount30d: number;
-  salesQuantity30d: number;
+  orderCountDaysN: number;
+  salesQuantityDaysN: number;
 }
 
 // POST: Sync sales data from WooCommerce to Supabase cache
@@ -73,8 +73,8 @@ export async function POST(request: NextRequest) {
         const data = salesData[sku] || {
           orderCount: 0,
           salesQuantity: 0,
-          orderCount30d: 0,
-          salesQuantity30d: 0,
+          orderCountDaysN: 0,
+          salesQuantityDaysN: 0,
         };
 
         return {
@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
           site_id: siteId,
           order_count: data.orderCount,
           sales_quantity: data.salesQuantity,
-          order_count_30d: data.orderCount30d,
-          sales_quantity_30d: data.salesQuantity30d,
+          order_count_30d: data.orderCountDaysN,
+          sales_quantity_30d: data.salesQuantityDaysN,
           cache_expires_at: getCacheExpiryTime(6), // 6 hours cache
           last_updated: new Date().toISOString(),
         };
@@ -240,8 +240,8 @@ function calculateSalesDataFromOrders(
     salesDataMap[sku] = {
       orderCount: 0,
       salesQuantity: 0,
-      orderCount30d: 0,
-      salesQuantity30d: 0,
+      orderCountDaysN: 0,
+      salesQuantityDaysN: 0,
     };
   });
 
@@ -269,10 +269,10 @@ function calculateSalesDataFromOrders(
           
           // Update 30-day counts
           if (isWithin30Days) {
-            skuData.salesQuantity30d += quantity;
+            skuData.salesQuantityDaysN += quantity;
             
             if (!processedSkusInOrder.has(`${sku}_30d`)) {
-              skuData.orderCount30d += 1;
+              skuData.orderCountDaysN += 1;
               processedSkusInOrder.add(`${sku}_30d`);
             }
           }

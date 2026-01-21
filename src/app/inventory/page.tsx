@@ -65,6 +65,8 @@ export default function InventoryPage() {
     setSalesData,
     salesDaysBack,
     setSalesDaysBack,
+    salesDetectionDays,
+    setSalesDetectionDays,
   } = useInventoryStore();
 
   // WooCommerce store
@@ -165,16 +167,29 @@ export default function InventoryPage() {
 
     setShowSalesDetectionDialog(false);
 
-    // 保存用户选择的天数
-    setSalesDaysBack(config.daysBack);
+    // 判断是否是从弹窗调用（使用显式标志，避免天数比较误判）
+    const isFromDialog = config.isFromDialog === true;
+
+    // 如果是从弹窗调用，保存弹窗配置天数（用于 orderCount/salesQuantity 列）
+    if (isFromDialog) {
+      setSalesDetectionDays(config.salesDetectionDays);
+      // 重置 N 天列为默认 30 天
+      setSalesDaysBack(30);
+    }
 
     setIsSalesLoading(true);
     setSalesDetectionProgress('正在检测销量...');
 
     try {
+      // 确定动态天数（N天列）的值
+      // - 弹窗调用：使用默认 30 天
+      // - 表头修改调用：使用传入的新值
+      const effectiveDaysBack = isFromDialog ? 30 : config.daysBack;
+
       const result = await fetchSalesAnalysis({
         skus,
-        ...config
+        ...config,
+        daysBack: effectiveDaysBack,
       });
 
       if (result.success && result.data) {
@@ -208,16 +223,16 @@ export default function InventoryPage() {
           if (salesInfo) {
             matchedCount++;
             console.log(`[Sales Detection] ✓ Matched ${sku} with sales:`, {
-              orderCount30d: salesInfo.orderCount30d,
-              salesQuantity30d: salesInfo.salesQuantity30d
+              orderCountDaysN: salesInfo.orderCountDaysN,
+              salesQuantityDaysN: salesInfo.salesQuantityDaysN
             });
             return {
               ...item,
               salesData: {
                 orderCount: salesInfo.orderCount || 0,
                 salesQuantity: salesInfo.salesQuantity || 0,
-                orderCount30d: salesInfo.orderCount30d || 0,
-                salesQuantity30d: salesInfo.salesQuantity30d || 0,
+                orderCountDaysN: salesInfo.orderCountDaysN || 0,
+                salesQuantityDaysN: salesInfo.salesQuantityDaysN || 0,
               }
             };
           } else {
@@ -234,11 +249,11 @@ export default function InventoryPage() {
         // Update the inventory data with sales information
         setInventoryData(updatedData);
 
-        // Calculate summary statistics - use salesQuantity30d instead of sales30Days
+        // Calculate summary statistics - use salesQuantityDaysN instead of sales30Days
         const totalSales = result.data.reduce((sum: number, item: any) =>
-          sum + (item.salesQuantity30d || 0), 0) || 0;
+          sum + (item.salesQuantityDaysN || 0), 0) || 0;
         const detectedCount = result.data.filter((item: any) =>
-          item.salesQuantity30d > 0).length || 0;
+          item.salesQuantityDaysN > 0).length || 0;
 
         if (detectedCount === 0 && result.data.length > 0) {
           toast.warning(
@@ -261,9 +276,10 @@ export default function InventoryPage() {
       setIsSalesLoading(false);
       setTimeout(() => setSalesDetectionProgress(''), 5000);
     }
-  }, [filteredInventoryData, inventoryData, setInventoryData, fetchSalesAnalysis, setIsSalesLoading, setSalesDetectionProgress]);
+  }, [filteredInventoryData, inventoryData, setInventoryData, fetchSalesAnalysis, setIsSalesLoading, setSalesDetectionProgress, salesDaysBack, setSalesDetectionDays]);
 
   // 处理天数变更后自动触发销量检测
+  // 注意：这里只改变 daysBack（动态天数），salesDetectionDays 保持为弹窗配置的值
   const handleDaysChangeAndDetect = useCallback((newDays: number) => {
     // 使用新天数和默认配置触发销量检测
     const config: SalesDetectionConfig = {
@@ -271,11 +287,13 @@ export default function InventoryPage() {
       siteIds: [],  // 空数组表示所有站点
       statuses: salesOrderStatuses,  // 使用当前的订单状态配置
       daysBack: newDays,
+      salesDetectionDays: salesDetectionDays, // 保持弹窗配置的天数
+      isFromDialog: false, // 明确标记为从表头调用，不是弹窗
     };
 
     // 直接调用销量检测
     handleSalesDetection(config);
-  }, [salesOrderStatuses, handleSalesDetection]);
+  }, [salesOrderStatuses, salesDetectionDays, handleSalesDetection]);
 
   // Export inventory data
   const handleExportInventory = useCallback(() => {
@@ -290,7 +308,7 @@ export default function InventoryPage() {
         const 净可售库存 = item.净可售库存 || 0;
         const 在途数量 = item.在途数量 || 0;
         const 在途库存 = item.在途库存 || (净可售库存 + 在途数量);
-        const 销量 = item.salesData?.salesQuantity30d || 0;
+        const 销量 = item.salesData?.salesQuantityDaysN || 0;
         const 预测库存 = 在途库存 - 销量;
 
         return {
@@ -305,7 +323,7 @@ export default function InventoryPage() {
           '在途库存（说明：净可售库存+在途数量）': 在途库存,
           ...(isSalesDetectionEnabled && {
             [`${salesDaysBack}天销量`]: 销量,
-            [`${salesDaysBack}天订单数`]: item.salesData?.orderCount30d || 0,
+            [`${salesDaysBack}天订单数`]: item.salesData?.orderCountDaysN || 0,
             [`预测库存_在途（说明：在途库存-${salesDaysBack}天销量）`]: 预测库存,
           }),
           仓库代码: item.仓库代码,

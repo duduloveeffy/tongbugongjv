@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils';
 interface SimpleTrendIndicatorProps {
   sku: string;
   salesData?: {
-    salesQuantity30d?: number;
-    orderCount30d?: number;
+    salesQuantityDaysN?: number;
+    orderCountDaysN?: number;
   };
   onClick?: () => void;
   className?: string;
@@ -27,7 +27,7 @@ export function SimpleTrendIndicator({
       return <BarChart2 className="h-4 w-4 text-muted-foreground" />;
     }
     
-    const sales = salesData.salesQuantity30d || 0;
+    const sales = salesData.salesQuantityDaysN || 0;
     
     if (sales > 100) {
       return <TrendingUp className="h-4 w-4 text-green-500" />;
@@ -43,8 +43,8 @@ export function SimpleTrendIndicator({
   const getSalesLabel = () => {
     if (!salesData) return '无数据';
     
-    const sales = salesData.salesQuantity30d || 0;
-    const orders = salesData.orderCount30d || 0;
+    const sales = salesData.salesQuantityDaysN || 0;
+    const orders = salesData.orderCountDaysN || 0;
     
     if (sales === 0) return '无销售';
     

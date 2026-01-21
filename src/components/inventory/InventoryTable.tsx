@@ -55,7 +55,7 @@ export function InventoryTable({
   selectedSiteName,
   onDaysChange,
 }: InventoryTableProps) {
-  const { sortConfig, setSortConfig, salesDaysBack, setSalesDaysBack } = useInventoryStore();
+  const { sortConfig, setSortConfig, salesDaysBack, setSalesDaysBack, salesDetectionDays } = useInventoryStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [editingDays, setEditingDays] = useState(false);
   const [tempDaysStr, setTempDaysStr] = useState(String(salesDaysBack));
@@ -201,25 +201,31 @@ export function InventoryTable({
               <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-2 text-left align-middle font-medium text-foreground">一级品类</th>
               {isSalesDetectionEnabled && (
                 <>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
-                    <Button
-                      variant="ghost"
-                      className="h-full w-full justify-start px-2 font-medium"
-                      onClick={() => handleSort('订单数')}
-                    >
-                      订单数
-                      {getSortIcon('订单数')}
-                    </Button>
+                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <div className="flex items-center h-full px-2">
+                      <span className="text-green-600 font-medium text-sm mr-1">{salesDetectionDays}天</span>
+                      <Button
+                        variant="ghost"
+                        className="h-full justify-start px-1 font-medium"
+                        onClick={() => handleSort('订单数')}
+                      >
+                        订单数
+                        {getSortIcon('订单数')}
+                      </Button>
+                    </div>
                   </th>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
-                    <Button
-                      variant="ghost"
-                      className="h-full w-full justify-start px-2 font-medium"
-                      onClick={() => handleSort('销售数量')}
-                    >
-                      销售数量
-                      {getSortIcon('销售数量')}
-                    </Button>
+                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <div className="flex items-center h-full px-2">
+                      <span className="text-green-600 font-medium text-sm mr-1">{salesDetectionDays}天</span>
+                      <Button
+                        variant="ghost"
+                        className="h-full justify-start px-1 font-medium"
+                        onClick={() => handleSort('销售数量')}
+                      >
+                        销售数量
+                        {getSortIcon('销售数量')}
+                      </Button>
+                    </div>
                   </th>
                   <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
                     <div className="flex items-center h-full px-2">
@@ -314,7 +320,7 @@ export function InventoryTable({
               const netStock = calculateNetStock(item);
               const isOnline = item.productData?.isOnline || false;
               const isSyncing = syncingSkus.has(item.产品代码);
-              const sales30d = item.salesData?.salesQuantity30d || 0;
+              const sales30d = item.salesData?.salesQuantityDaysN || 0;
               const transitStock = item.在途库存 || netStock;
               const predictedTransitQuantity = transitStock - sales30d;
               const isExpanded = expandedRows.has(item.产品代码);
@@ -490,13 +496,13 @@ export function InventoryTable({
                         </Badge>
                       </td>
                       <td className="whitespace-nowrap p-2 align-middle">
-                        <Badge variant={item.salesData?.orderCount30d ? 'default' : 'secondary'}>
-                          {item.salesData?.orderCount30d || 0}
+                        <Badge variant={item.salesData?.orderCountDaysN ? 'default' : 'secondary'}>
+                          {item.salesData?.orderCountDaysN || 0}
                         </Badge>
                       </td>
                       <td className="whitespace-nowrap p-2 align-middle">
-                        <Badge variant={item.salesData?.salesQuantity30d ? 'default' : 'secondary'}>
-                          {item.salesData?.salesQuantity30d || 0}
+                        <Badge variant={item.salesData?.salesQuantityDaysN ? 'default' : 'secondary'}>
+                          {item.salesData?.salesQuantityDaysN || 0}
                         </Badge>
                       </td>
                       <td className={`whitespace-nowrap p-2 align-middle ${predictedTransitQuantity < 0 ? "font-medium text-red-600" : ''}`}>

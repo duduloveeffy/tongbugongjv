@@ -235,16 +235,16 @@ export interface MultiSiteSalesData {
   total: {
     orderCount: number;
     salesQuantity: number;
-    orderCount30d: number;
-    salesQuantity30d: number;
+    orderCountDaysN: number;
+    salesQuantityDaysN: number;
   };
   sites: {
     [siteName: string]: {
       siteId: string;
       orderCount: number;
       salesQuantity: number;
-      orderCount30d: number;
-      salesQuantity30d: number;
+      orderCountDaysN: number;
+      salesQuantityDaysN: number;
       lastUpdated: string;
       isFresh: boolean;
     };

@@ -48,8 +48,8 @@ export interface InventoryItem {
   salesData?: {
     orderCount: number;
     salesQuantity: number;
-    orderCount30d: number;
-    salesQuantity30d: number;
+    orderCountDaysN: number;
+    salesQuantityDaysN: number;
   };
   // 上架检测相关字段（单站点）
   productData?: {
@@ -558,7 +558,7 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
     // 准备导出数据
     const exportData = data.map(item => {
       const 净可售库存 = calculateNetStock(item);
-      const sales30d = item.salesData?.salesQuantity30d || 0;
+      const sales30d = item.salesData?.salesQuantityDaysN || 0;
       const transitStock = item.在途库存 || 净可售库存;
       const predictedTransitQuantity = transitStock - sales30d;
       
@@ -578,8 +578,8 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
         // 销量数据
         '订单数': item.salesData?.orderCount || '',
         '销售数量': item.salesData?.salesQuantity || '',
-        '30天订单数': item.salesData?.orderCount30d || '',
-        '30天销售数量': item.salesData?.salesQuantity30d || '',
+        '30天订单数': item.salesData?.orderCountDaysN || '',
+        '30天销售数量': item.salesData?.salesQuantityDaysN || '',
         '预测库存（在途）': item.salesData ? predictedTransitQuantity : '',
         // 上架状态
         '上架状态': item.productData?.isOnline ? '已上架' : '未上架',
@@ -602,7 +602,7 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
       .filter(item => {
         const netStock = calculateNetStock(item);
         const transitStock = item.在途库存 || netStock;
-        const sales30d = item.salesData?.salesQuantity30d || 0;
+        const sales30d = item.salesData?.salesQuantityDaysN || 0;
         const predictedTransitQuantity = transitStock - sales30d;
         
         // 紧急补货：在途库存<=0 且 30天销售数量>=5
@@ -612,7 +612,7 @@ export const exportToExcel = (data: InventoryItem[], fileName = '库存分析结
       .map(item => {
         const netStock = calculateNetStock(item);
         const transitStock = item.在途库存 || netStock;
-        const sales30d = item.salesData?.salesQuantity30d || 0;
+        const sales30d = item.salesData?.salesQuantityDaysN || 0;
         const predictedTransitQuantity = transitStock - sales30d;
         
         // 判断预警级别
@@ -701,14 +701,14 @@ export const sortInventoryData = (
         bValue = b.在途库存 || calculateNetStock(b);
         break;
       case '30天销售数量':
-        aValue = a.salesData?.salesQuantity30d || 0;
-        bValue = b.salesData?.salesQuantity30d || 0;
+        aValue = a.salesData?.salesQuantityDaysN || 0;
+        bValue = b.salesData?.salesQuantityDaysN || 0;
         break;
       case '预测库存（在途）': {
         const aTransit = a.在途库存 || calculateNetStock(a);
         const bTransit = b.在途库存 || calculateNetStock(b);
-        aValue = aTransit - (a.salesData?.salesQuantity30d || 0);
-        bValue = bTransit - (b.salesData?.salesQuantity30d || 0);
+        aValue = aTransit - (a.salesData?.salesQuantityDaysN || 0);
+        bValue = bTransit - (b.salesData?.salesQuantityDaysN || 0);
         break;
       }
       case '订单数':
@@ -720,8 +720,8 @@ export const sortInventoryData = (
         bValue = b.salesData?.salesQuantity || 0;
         break;
       case '30天订单数':
-        aValue = a.salesData?.orderCount30d || 0;
-        bValue = b.salesData?.orderCount30d || 0;
+        aValue = a.salesData?.orderCountDaysN || 0;
+        bValue = b.salesData?.orderCountDaysN || 0;
         break;
       default:
         return 0;

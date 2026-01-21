@@ -9,8 +9,8 @@ import { h3yunSchemaConfig } from '@/config/h3yun.config';
 interface SalesData {
   orderCount: number;
   salesQuantity: number;
-  orderCount30d: number;
-  salesQuantity30d: number;
+  orderCountDaysN: number;
+  salesQuantityDaysN: number;
   lastOrderDate?: string;
   siteName?: string;
 }
@@ -99,9 +99,13 @@ export async function POST(request: NextRequest) {
       dateStart,
       dateEnd,
       daysBack = 30,
+      salesDetectionDays, // 销量检测弹窗选择的天数（用于 orderCount/salesQuantity）
       strictMatch = false, // 是否使用严格匹配
       useSkuMapping = true // 新增：是否使用SKU映射（默认启用）
     } = body;
+
+    // salesDetectionDays 默认等于 daysBack，如果没有单独指定
+    const detectionDays = salesDetectionDays || daysBack;
 
     if (!skus || !Array.isArray(skus) || skus.length === 0) {
       return NextResponse.json({
@@ -520,8 +524,15 @@ export async function POST(request: NextRequest) {
 
     // 计算销量数据
     const salesDataMap = new Map<string, Map<string, SalesData>>();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - daysBack);
+
+    // 双时间判断：
+    // - daysBackAgo: 用于 orderCountDaysN/salesQuantityDaysN（动态天数，可在表头修改）
+    // - detectionDaysAgo: 用于 orderCount/salesQuantity（销量检测弹窗配置的天数）
+    const daysBackAgo = new Date();
+    daysBackAgo.setDate(daysBackAgo.getDate() - daysBack);
+
+    const detectionDaysAgo = new Date();
+    detectionDaysAgo.setDate(detectionDaysAgo.getDate() - detectionDays);
 
     // 创建SKU映射表（标准化SKU -> 原始SKU）和（原始SKU -> 原始SKU）
     const skuMapping = new Map<string, string>();
@@ -551,7 +562,8 @@ export async function POST(request: NextRequest) {
         const siteId = order.site_id;
         const siteName = order.wc_sites.name;
         const orderDate = new Date(order.date_created);
-        const isWithin30Days = orderDate >= thirtyDaysAgo;
+        const isWithinDaysBack = orderDate >= daysBackAgo;         // 动态天数（表头）
+        const isWithinDetectionDays = orderDate >= detectionDaysAgo; // 弹窗配置天数
 
         // 尝试多种方式找到对应的原始SKU
         let originalSku = skuMapping.get(dbSku) || skuMapping.get(dbSkuUpper);
@@ -598,31 +610,38 @@ export async function POST(request: NextRequest) {
           siteData = {
             orderCount: 0,
             salesQuantity: 0,
-            orderCount30d: 0,
-            salesQuantity30d: 0,
+            orderCountDaysN: 0,
+            salesQuantityDaysN: 0,
             siteName: siteName,
             lastOrderDate: order.date_created
           };
           skuData.set(siteId, siteData);
         }
 
-        // 更新销量数据
-        siteData.salesQuantity += quantity;
+        // ============ 双时间判断统计 ============
+        // orderCount / salesQuantity: 使用 detectionDays（销量检测弹窗配置的天数）
+        // orderCountDaysN / salesQuantityDaysN: 使用 daysBack（动态天数，可在表头修改）
 
-        // 计算订单数（每个订单只计算一次）
-        if (!processedOrders.has(orderKey)) {
-          siteData.orderCount += 1;
-          processedOrders.add(orderKey);
+        // 检测天数内的数据（用于 orderCount/salesQuantity）
+        if (isWithinDetectionDays) {
+          siteData.salesQuantity += quantity;
+
+          // 计算订单数（每个订单只计算一次）
+          const orderKeyDetection = `${orderKey}-detection`;
+          if (!processedOrders.has(orderKeyDetection)) {
+            siteData.orderCount += 1;
+            processedOrders.add(orderKeyDetection);
+          }
         }
 
-        // 30天内的数据
-        if (isWithin30Days) {
-          siteData.salesQuantity30d += quantity;
-          
-          const orderKey30d = `${orderKey}-30d`;
-          if (!processedOrders.has(orderKey30d)) {
-            siteData.orderCount30d += 1;
-            processedOrders.add(orderKey30d);
+        // 动态天数内的数据（用于 orderCountDaysN/salesQuantityDaysN）
+        if (isWithinDaysBack) {
+          siteData.salesQuantityDaysN += quantity;
+
+          const orderKeyDaysBack = `${orderKey}-daysback`;
+          if (!processedOrders.has(orderKeyDaysBack)) {
+            siteData.orderCountDaysN += 1;
+            processedOrders.add(orderKeyDaysBack);
           }
         }
 
@@ -650,8 +669,8 @@ export async function POST(request: NextRequest) {
         total: {
           orderCount: 0,
           salesQuantity: 0,
-          orderCount30d: 0,
-          salesQuantity30d: 0,
+          orderCountDaysN: 0,
+          salesQuantityDaysN: 0,
         },
         bySite: {} as Record<string, SalesData>
       };
@@ -661,8 +680,8 @@ export async function POST(request: NextRequest) {
         result[sku].bySite[siteId] = siteData;
         result[sku].total.orderCount += siteData.orderCount;
         result[sku].total.salesQuantity += siteData.salesQuantity;
-        result[sku].total.orderCount30d += siteData.orderCount30d;
-        result[sku].total.salesQuantity30d += siteData.salesQuantity30d;
+        result[sku].total.orderCountDaysN += siteData.orderCountDaysN;
+        result[sku].total.salesQuantityDaysN += siteData.salesQuantityDaysN;
       });
       
       if (result[sku].total.salesQuantity > 0) {

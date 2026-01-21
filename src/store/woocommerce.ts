@@ -116,6 +116,7 @@ interface WooCommerceStore {
     startDate?: string;
     endDate?: string;
     daysBack?: number;
+    salesDetectionDays?: number; // 销量检测弹窗配置的天数（用于 orderCount/salesQuantity）
     onProgress?: (progress: { current: number; total: number; message: string }) => void;
   }) => Promise<Record<string, any>>;
   
@@ -355,16 +356,17 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
       // 优化后的销量检测方法 - 支持多数据源
       fetchSalesAnalysis: async (params) => {
         const { settings } = get();
-        const { 
-          skus, 
+        const {
+          skus,
           dataSource = 'woocommerce',
           siteIds,
           siteId,
-          statuses = ['completed', 'processing'], 
-          startDate, 
+          statuses = ['completed', 'processing'],
+          startDate,
           endDate,
           daysBack = 30,
-          onProgress 
+          salesDetectionDays, // 销量检测弹窗配置的天数
+          onProgress
         } = params;
 
         if (!skus || skus.length === 0) {
@@ -395,6 +397,7 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
                 dateStart: startDate,
                 dateEnd: endDate,
                 daysBack,
+                salesDetectionDays, // 弹窗配置的天数（用于 orderCount/salesQuantity）
               }),
             });
 
@@ -422,16 +425,16 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
                 const itemData = skuData.total || {
                   orderCount: 0,
                   salesQuantity: 0,
-                  orderCount30d: 0,
-                  salesQuantity30d: 0,
+                  orderCountDaysN: 0,
+                  salesQuantityDaysN: 0,
                 };
                 // 添加SKU和销量字段
                 salesDataArray.push({
                   sku,
                   orderCount: itemData.orderCount || 0,
                   salesQuantity: itemData.salesQuantity || 0,
-                  orderCount30d: itemData.orderCount30d || 0,
-                  salesQuantity30d: itemData.salesQuantity30d || 0,
+                  orderCountDaysN: itemData.orderCountDaysN || 0,
+                  salesQuantityDaysN: itemData.salesQuantityDaysN || 0,
                   // 附加站点详细信息
                   bySite: skuData.bySite || null
                 });
@@ -540,8 +543,8 @@ export const useWooCommerceStore = create<WooCommerceStore>()(
               sku,
               orderCount: data.orderCount || 0,
               salesQuantity: data.salesQuantity || 0,
-              orderCount30d: data.orderCount30d || 0,
-              salesQuantity30d: data.salesQuantity30d || 0
+              orderCountDaysN: data.orderCountDaysN || 0,
+              salesQuantityDaysN: data.salesQuantityDaysN || 0
             }));
 
             return { success: true, data: salesDataArray };

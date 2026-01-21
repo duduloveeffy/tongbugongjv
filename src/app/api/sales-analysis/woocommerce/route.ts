@@ -4,8 +4,8 @@ import { getSupabaseClient } from '@/lib/supabase';
 interface SalesData {
   orderCount: number;
   salesQuantity: number;
-  orderCount30d: number;
-  salesQuantity30d: number;
+  orderCountDaysN: number;
+  salesQuantityDaysN: number;
 }
 
 export async function POST(request: NextRequest) {
@@ -91,8 +91,8 @@ export async function POST(request: NextRequest) {
       result[sku] = salesDataMap.get(sku) || {
         orderCount: 0,
         salesQuantity: 0,
-        orderCount30d: 0,
-        salesQuantity30d: 0,
+        orderCountDaysN: 0,
+        salesQuantityDaysN: 0,
       };
     });
 
@@ -249,8 +249,8 @@ function calculateSalesData(
     salesDataMap.set(sku, {
       orderCount: 0,
       salesQuantity: 0,
-      orderCount30d: 0,
-      salesQuantity30d: 0,
+      orderCountDaysN: 0,
+      salesQuantityDaysN: 0,
     });
   });
 
@@ -287,10 +287,10 @@ function calculateSalesData(
             
             // 指定时间段内的数据
             if (isWithinPeriod) {
-              salesData.salesQuantity30d += quantity;
+              salesData.salesQuantityDaysN += quantity;
               
               if (!processedSkusPeriod.has(sku)) {
-                salesData.orderCount30d += 1;
+                salesData.orderCountDaysN += 1;
                 processedSkusPeriod.add(sku);
               }
             }

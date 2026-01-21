@@ -40,6 +40,8 @@ export interface SalesDetectionConfig {
   siteIds: string[];
   statuses: string[];
   daysBack: number;
+  salesDetectionDays: number; // 销量检测弹窗配置的天数（用于 orderCount/salesQuantity）
+  isFromDialog?: boolean; // 是否从弹窗调用（true 时重置 N 天列为 30）
   dateStart?: string;
   dateEnd?: string;
 }
@@ -108,6 +110,8 @@ export function SalesDetectionDialog({
       siteIds: selectAll ? [] : selectedSiteIds, // Empty array means all sites
       statuses: orderStatuses,
       daysBack,
+      salesDetectionDays: daysBack, // 弹窗配置的天数（用于 orderCount/salesQuantity 列）
+      isFromDialog: true, // 标记为从弹窗调用
     };
 
     onConfirm(config);

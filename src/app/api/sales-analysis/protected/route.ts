@@ -164,8 +164,8 @@ export const POST = withAuth(
             sku,
             orderCount: 0,
             salesQuantity: 0,
-            orderCount30d: 0,
-            salesQuantity30d: 0,
+            orderCountDaysN: 0,
+            salesQuantityDaysN: 0,
             bySite: {}
           });
         }
@@ -178,8 +178,8 @@ export const POST = withAuth(
             siteName,
             orderCount: 0,
             salesQuantity: 0,
-            orderCount30d: 0,
-            salesQuantity30d: 0
+            orderCountDaysN: 0,
+            salesQuantityDaysN: 0
           };
         }
 
@@ -188,8 +188,8 @@ export const POST = withAuth(
         skuData.orderCount += 1;
 
         if (isWithin30Days) {
-          skuData.salesQuantity30d += quantity;
-          skuData.orderCount30d += 1;
+          skuData.salesQuantityDaysN += quantity;
+          skuData.orderCountDaysN += 1;
         }
 
         // Update site-specific data
@@ -197,8 +197,8 @@ export const POST = withAuth(
         skuData.bySite[siteId].orderCount += 1;
 
         if (isWithin30Days) {
-          skuData.bySite[siteId].salesQuantity30d += quantity;
-          skuData.bySite[siteId].orderCount30d += 1;
+          skuData.bySite[siteId].salesQuantityDaysN += quantity;
+          skuData.bySite[siteId].orderCountDaysN += 1;
         }
       });
 
@@ -206,8 +206,8 @@ export const POST = withAuth(
       const salesData = Array.from(salesDataMap.values());
 
       // Calculate statistics
-      const totalSales = salesData.reduce((sum, item) => sum + item.salesQuantity30d, 0);
-      const skusWithSales = salesData.filter(item => item.salesQuantity30d > 0).length;
+      const totalSales = salesData.reduce((sum, item) => sum + item.salesQuantityDaysN, 0);
+      const skusWithSales = salesData.filter(item => item.salesQuantityDaysN > 0).length;
 
       const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
 

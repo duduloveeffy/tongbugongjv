@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
         total: {
           orderCount: 0,
           salesQuantity: 0,
-          orderCount30d: 0,
-          salesQuantity30d: 0,
+          orderCountDaysN: 0,
+          salesQuantityDaysN: 0,
         },
         sites: {},
       });
@@ -97,8 +97,8 @@ export async function POST(request: NextRequest) {
           siteId: site.id,
           orderCount: cache.order_count,
           salesQuantity: cache.sales_quantity,
-          orderCount30d: cache.order_count_30d,
-          salesQuantity30d: cache.sales_quantity_30d,
+          orderCountDaysN: cache.order_count_30d,
+          salesQuantityDaysN: cache.sales_quantity_30d,
           lastUpdated: cache.last_updated,
           isFresh,
         };
@@ -106,8 +106,8 @@ export async function POST(request: NextRequest) {
         // Add to totals
         salesData.total.orderCount += cache.order_count;
         salesData.total.salesQuantity += cache.sales_quantity;
-        salesData.total.orderCount30d += cache.order_count_30d;
-        salesData.total.salesQuantity30d += cache.sales_quantity_30d;
+        salesData.total.orderCountDaysN += cache.order_count_30d;
+        salesData.total.salesQuantityDaysN += cache.sales_quantity_30d;
       });
     }
 
