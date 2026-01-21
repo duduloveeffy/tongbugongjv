@@ -111,10 +111,11 @@ export function transformH3YunToInventoryItem(
     可售总库存: FIELD_MAPPINGS.可售总库存(obj),
     库龄: FIELD_MAPPINGS.库龄(obj),
 
-    // 在途数据 - 初始值
-    在途数量: 0,
+    // 在途数据 - 从 API 获取采购在途数量
+    在途数量: Number.parseFloat(FIELD_MAPPINGS.采购在途(obj)) || 0,
     在途库存:
-      Number.parseFloat(FIELD_MAPPINGS.可售库存减去缺货占用库存(obj)) || 0,
+      (Number.parseFloat(FIELD_MAPPINGS.可售库存减去缺货占用库存(obj)) || 0) +
+      (Number.parseFloat(FIELD_MAPPINGS.采购在途(obj)) || 0),
   };
 
   return item;

@@ -41,6 +41,7 @@ export interface H3YunBizObject {
   F0000084: number;              // 缺货排队待发
   F0000079: number;              // SKU*SKU(PCS)
   F0000065: number;              // 产品SKU(PCS)数量
+  F0000066: number;              // 采购在途
 
   // 其他字段...
   [key: string]: any;

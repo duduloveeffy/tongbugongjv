@@ -144,6 +144,8 @@ interface InventoryStore {
   setSalesLoadingProgress: (progress: { current: number; total: number }) => void;
   salesDetectionSites: string[];
   setSalesDetectionSites: (sites: string[]) => void;
+  salesDaysBack: number;  // 销量统计天数
+  setSalesDaysBack: (days: number) => void;
   
   // 筛选后的数据（用于销量检测页面）
   filteredData: InventoryItem[];
@@ -241,6 +243,8 @@ export const useInventoryStore = create<InventoryStore>()(
       setSalesLoadingProgress: (salesLoadingProgress) => set({ salesLoadingProgress }),
       salesDetectionSites: [],
       setSalesDetectionSites: (salesDetectionSites) => set({ salesDetectionSites }),
+      salesDaysBack: 30,
+      setSalesDaysBack: (salesDaysBack) => set({ salesDaysBack }),
       
       // 筛选后的数据
       filteredData: [],
@@ -300,6 +304,7 @@ export const useInventoryStore = create<InventoryStore>()(
         inventoryData: state.inventoryData,
         salesData: state.salesData,
         salesDetectionSites: state.salesDetectionSites,
+        salesDaysBack: state.salesDaysBack,
         filters: state.filters,
         sortConfig: state.sortConfig,
         isProductDetectionEnabled: state.isProductDetectionEnabled,

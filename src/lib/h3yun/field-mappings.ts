@@ -62,7 +62,7 @@ export const FIELD_MAPPINGS = {
 
   // 默认为0的数值字段
   计划库存: (_obj: H3YunBizObject) => '0',
-  采购在途: (_obj: H3YunBizObject) => '0',
+  采购在途: (obj: H3YunBizObject) => String(obj.F0000066 ?? 0),
   退件在途: (_obj: H3YunBizObject) => '0',
   待上架: (_obj: H3YunBizObject) => '0',
   可用库存: (obj: H3YunBizObject) => String(obj.F0000030 ?? 0),

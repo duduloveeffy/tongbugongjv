@@ -63,6 +63,8 @@ export default function InventoryPage() {
     setIsSalesDetectionLoading: setIsSalesLoading,
     updateInventoryItem,
     setSalesData,
+    salesDaysBack,
+    setSalesDaysBack,
   } = useInventoryStore();
 
   // WooCommerce store
@@ -101,10 +103,14 @@ export default function InventoryPage() {
     } else {
       // Add transit quantities even without merging
       processedData = processedData.map(item => {
-        const 在途数量 = getTransitQuantityBySku(item.产品代码);
+        const excelTransit = getTransitQuantityBySku(item.产品代码);
+        const apiTransit = item.在途数量 || Number(item.采购在途) || 0;
+        // 优先使用 API 的采购在途，如果为0则使用 Excel 上传的在途数量
+        const 在途数量 = apiTransit > 0 ? apiTransit : excelTransit;
         const 净可售库存 = calculateNetStock(item);
         return {
           ...item,
+          净可售库存: 净可售库存,
           在途数量: 在途数量,
           在途库存: 净可售库存 + 在途数量,
         };
@@ -158,6 +164,9 @@ export default function InventoryPage() {
     }
 
     setShowSalesDetectionDialog(false);
+
+    // 保存用户选择的天数
+    setSalesDaysBack(config.daysBack);
 
     setIsSalesLoading(true);
     setSalesDetectionProgress('正在检测销量...');
@@ -254,6 +263,20 @@ export default function InventoryPage() {
     }
   }, [filteredInventoryData, inventoryData, setInventoryData, fetchSalesAnalysis, setIsSalesLoading, setSalesDetectionProgress]);
 
+  // 处理天数变更后自动触发销量检测
+  const handleDaysChangeAndDetect = useCallback((newDays: number) => {
+    // 使用新天数和默认配置触发销量检测
+    const config: SalesDetectionConfig = {
+      dataSource: 'supabase',
+      siteIds: [],  // 空数组表示所有站点
+      statuses: salesOrderStatuses,  // 使用当前的订单状态配置
+      daysBack: newDays,
+    };
+
+    // 直接调用销量检测
+    handleSalesDetection(config);
+  }, [salesOrderStatuses, handleSalesDetection]);
+
   // Export inventory data
   const handleExportInventory = useCallback(() => {
     if (filteredInventoryData.length === 0) {
@@ -262,27 +285,36 @@ export default function InventoryPage() {
     }
 
     try {
-      const exportData = filteredInventoryData.map(item => ({
-        产品代码: item.产品代码,
-        产品名称: item.产品名称,
-        产品英文名称: item.产品英文名称,
-        仓库: item.仓库,
-        可售库存: item.可售库存,
-        缺货占用库存: item.缺货占用库存,
-        净可售库存: item.净可售库存 || 0,
-        在途数量: item.在途数量 || 0,
-        含在途库存: item.含在途库存 || 0,
-        预计含在途数量: item.预计含在途数量 || item.含在途库存 || 0,
-        ...(isSalesDetectionEnabled && {
-          '30天销量': item.salesData?.salesQuantity30d || 0,
-          '30天订单数': item.salesData?.orderCount30d || 0,
-        }),
-        仓库代码: item.仓库代码,
-        一级品类: item.一级品类,
-        二级品类: item.二级品类,
-        三级品类: item.三级品类,
-        销售状态: item.销售状态,
-      }));
+      // 计算在途库存和预测库存
+      const exportData = filteredInventoryData.map(item => {
+        const 净可售库存 = item.净可售库存 || 0;
+        const 在途数量 = item.在途数量 || 0;
+        const 在途库存 = item.在途库存 || (净可售库存 + 在途数量);
+        const 销量 = item.salesData?.salesQuantity30d || 0;
+        const 预测库存 = 在途库存 - 销量;
+
+        return {
+          产品代码: item.产品代码,
+          产品名称: item.产品名称,
+          产品英文名称: item.产品英文名称,
+          仓库: item.仓库,
+          可售库存: item.可售库存,
+          缺货占用库存: item.缺货,
+          '净可售库存（说明：可售库存-缺货占用）': 净可售库存,
+          '在途数量（说明：采购在途数量）': 在途数量,
+          '在途库存（说明：净可售库存+在途数量）': 在途库存,
+          ...(isSalesDetectionEnabled && {
+            [`${salesDaysBack}天销量`]: 销量,
+            [`${salesDaysBack}天订单数`]: item.salesData?.orderCount30d || 0,
+            [`预测库存_在途（说明：在途库存-${salesDaysBack}天销量）`]: 预测库存,
+          }),
+          仓库代码: item.仓库代码,
+          一级品类: item.一级品类,
+          二级品类: item.二级品类,
+          三级品类: item.三级品类,
+          销售状态: item.销售状态,
+        };
+      });
 
       const filename = isMergedMode ? '库存数据_合并' : '库存数据';
       exportToExcel(exportData, filename);
@@ -291,7 +323,7 @@ export default function InventoryPage() {
       console.error('导出失败:', error);
       toast.error('导出失败');
     }
-  }, [filteredInventoryData, isMergedMode, isSalesDetectionEnabled]);
+  }, [filteredInventoryData, isMergedMode, isSalesDetectionEnabled, salesDaysBack]);
 
   // Clear data
   const handleClearData = () => {
@@ -386,6 +418,7 @@ export default function InventoryPage() {
           isProductDetectionEnabled={false}
           isSalesDetectionEnabled={isSalesDetectionEnabled}
           selectedSiteId={null}
+          onDaysChange={handleDaysChangeAndDetect}
         />
 
         {/* Sales Detection Dialog */}

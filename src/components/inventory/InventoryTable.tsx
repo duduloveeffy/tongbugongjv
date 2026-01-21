@@ -2,7 +2,8 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { 
+import { Input } from '@/components/ui/input';
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -39,6 +40,7 @@ interface InventoryTableProps {
   isSalesDetectionEnabled: boolean;
   selectedSiteId?: string | null;
   selectedSiteName?: string;
+  onDaysChange?: (newDays: number) => void;  // 天数变更回调，用于触发销量检测
 }
 
 export function InventoryTable({
@@ -51,9 +53,46 @@ export function InventoryTable({
   isSalesDetectionEnabled,
   selectedSiteId,
   selectedSiteName,
+  onDaysChange,
 }: InventoryTableProps) {
-  const { sortConfig, setSortConfig } = useInventoryStore();
+  const { sortConfig, setSortConfig, salesDaysBack, setSalesDaysBack } = useInventoryStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [editingDays, setEditingDays] = useState(false);
+  const [tempDaysStr, setTempDaysStr] = useState(String(salesDaysBack));
+
+  // 处理天数修改 - 允许输入为空，在失去焦点时验证
+  const handleDaysChange = (value: string) => {
+    // 允许空字符串或纯数字
+    if (value === '' || /^\d+$/.test(value)) {
+      setTempDaysStr(value);
+    }
+  };
+
+  const handleDaysBlur = () => {
+    const num = parseInt(tempDaysStr, 10);
+    if (!isNaN(num) && num >= 1 && num <= 365) {
+      const daysChanged = num !== salesDaysBack;
+      setSalesDaysBack(num);
+      setEditingDays(false);
+      // 如果天数有变化，触发销量检测回调
+      if (daysChanged && onDaysChange) {
+        onDaysChange(num);
+      }
+    } else {
+      // 无效输入时恢复原值
+      setTempDaysStr(String(salesDaysBack));
+      setEditingDays(false);
+    }
+  };
+
+  const handleDaysKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleDaysBlur();
+    } else if (e.key === 'Escape') {
+      setTempDaysStr(String(salesDaysBack));
+      setEditingDays(false);
+    }
+  };
   
   const handleSort = (field: SortField) => {
     if (sortConfig?.field === field) {
@@ -182,25 +221,67 @@ export function InventoryTable({
                       {getSortIcon('销售数量')}
                     </Button>
                   </th>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
-                    <Button
-                      variant="ghost"
-                      className="h-full w-full justify-start px-2 font-medium"
-                      onClick={() => handleSort('30天订单数')}
-                    >
-                      30天订单数
-                      {getSortIcon('30天订单数')}
-                    </Button>
+                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <div className="flex items-center h-full px-2">
+                      {editingDays ? (
+                        <Input
+                          type="text"
+                          value={tempDaysStr}
+                          onChange={(e) => handleDaysChange(e.target.value)}
+                          onBlur={handleDaysBlur}
+                          onKeyDown={handleDaysKeyDown}
+                          className="w-14 h-7 text-xs px-1"
+                          autoFocus
+                        />
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 font-medium"
+                          onClick={() => {
+                            setTempDaysStr(String(salesDaysBack));
+                            setEditingDays(true);
+                          }}
+                          title="点击修改天数"
+                        >
+                          {salesDaysBack}天
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        className="h-full justify-start px-1 font-medium"
+                        onClick={() => handleSort('30天订单数')}
+                      >
+                        订单数
+                        {getSortIcon('30天订单数')}
+                      </Button>
+                    </div>
                   </th>
-                  <th className="h-10 min-w-[100px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
-                    <Button
-                      variant="ghost"
-                      className="h-full w-full justify-start px-2 font-medium"
-                      onClick={() => handleSort('30天销售数量')}
-                    >
-                      30天销售数量
-                      {getSortIcon('30天销售数量')}
-                    </Button>
+                  <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
+                    <div className="flex items-center h-full px-2">
+                      {editingDays ? (
+                        <span className="text-blue-600 font-medium text-sm">{tempDaysStr || salesDaysBack}天</span>
+                      ) : (
+                        <span
+                          className="text-blue-600 font-medium text-sm cursor-pointer hover:underline"
+                          onClick={() => {
+                            setTempDaysStr(String(salesDaysBack));
+                            setEditingDays(true);
+                          }}
+                          title="点击修改天数"
+                        >
+                          {salesDaysBack}天
+                        </span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        className="h-full justify-start px-1 font-medium"
+                        onClick={() => handleSort('30天销售数量')}
+                      >
+                        销售数量
+                        {getSortIcon('30天销售数量')}
+                      </Button>
+                    </div>
                   </th>
                   <th className="h-10 min-w-[120px] whitespace-nowrap bg-background px-0 text-left align-middle font-medium text-foreground">
                     <Button

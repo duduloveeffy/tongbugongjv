@@ -12,13 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TrendingUp, Globe, Info, AlertTriangle, RefreshCw } from 'lucide-react';
@@ -166,18 +160,36 @@ export function SalesDetectionDialog({
           {/* Days Back Selection */}
           <div className="space-y-2">
             <Label>统计天数</Label>
-            <Select value={daysBack.toString()} onValueChange={(value) => setDaysBack(Number(value))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7">最近7天</SelectItem>
-                <SelectItem value="15">最近15天</SelectItem>
-                <SelectItem value="30">最近30天</SelectItem>
-                <SelectItem value="60">最近60天</SelectItem>
-                <SelectItem value="90">最近90天</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={daysBack}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value, 10);
+                  if (!isNaN(value) && value >= 1 && value <= 365) {
+                    setDaysBack(value);
+                  }
+                }}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">天</span>
+              <div className="flex gap-1 ml-2">
+                {[7, 15, 30, 60, 90].map((d) => (
+                  <Button
+                    key={d}
+                    type="button"
+                    variant={daysBack === d ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDaysBack(d)}
+                    className="h-7 px-2 text-xs"
+                  >
+                    {d}天
+                  </Button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Order Status Selection */}

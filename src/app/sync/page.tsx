@@ -131,7 +131,10 @@ export default function SyncPage() {
     } else {
       // Add transit quantities even without merging
       processedData = processedData.map(item => {
-        const 在途数量 = getTransitQuantityBySku(item.产品代码);
+        const excelTransit = getTransitQuantityBySku(item.产品代码);
+        const apiTransit = item.在途数量 || Number(item.采购在途) || 0;
+        // 优先使用 API 的采购在途，如果为0则使用 Excel 上传的在途数量
+        const 在途数量 = apiTransit > 0 ? apiTransit : excelTransit;
         const 净可售库存 = calculateNetStock(item);
         return {
           ...item,

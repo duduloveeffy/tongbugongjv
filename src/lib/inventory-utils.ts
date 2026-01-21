@@ -233,10 +233,14 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
     
     if (items.length === 1) {
       // 只有一个仓库的数据，也添加warehouseDetails以支持tooltip显示
-      const 在途数量 = getTransitQuantityBySku(sku);
+      const excelTransit = getTransitQuantityBySku(sku);
+      const apiTransit = firstItem.在途数量 || Number(firstItem.采购在途) || 0;
+      // 优先使用 API 的采购在途，如果为0则使用 Excel 上传的在途数量
+      const 在途数量 = apiTransit > 0 ? apiTransit : excelTransit;
       const 净可售库存 = calculateNetStock(firstItem);
       merged.push({
         ...firstItem,
+        净可售库存: 净可售库存,
         在途数量: 在途数量,
         在途库存: 净可售库存 + 在途数量,
         warehouseDetails: [{
@@ -270,8 +274,13 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
       
       const itemWithProductData = items.find(item => item.productData);
       const itemWithSalesData = items.find(item => item.salesData);
-      
-      const 在途数量 = getTransitQuantityBySku(sku);
+
+      const excelTransit = getTransitQuantityBySku(sku);
+      // 合并所有仓库的 API 采购在途数量
+      const apiTransit = items.reduce((sum, item) =>
+        sum + (item.在途数量 || Number(item.采购在途) || 0), 0);
+      // 优先使用 API 的采购在途，如果为0则使用 Excel 上传的在途数量
+      const 在途数量 = apiTransit > 0 ? apiTransit : excelTransit;
       const 合并净可售库存 = items.reduce((sum, item) => sum + calculateNetStock(item), 0);
       
       const mergedItem: InventoryItem = {
@@ -318,6 +327,8 @@ export const mergeWarehouseData = (data: InventoryItem[], getTransitQuantityBySk
         // 保留已有的检测数据
         productData: itemWithProductData?.productData,
         salesData: itemWithSalesData?.salesData,
+        // 净可售库存
+        净可售库存: 合并净可售库存,
         // 在途数据
         在途数量: 在途数量,
         在途库存: 合并净可售库存 + 在途数量,

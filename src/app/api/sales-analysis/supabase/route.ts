@@ -1,5 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
+import { createH3YunClient } from '@/lib/h3yun/client';
+import { buildMappingIndex, getWooCommerceSkus, type MappingIndex } from '@/lib/h3yun/mapping-service';
+import type { H3YunConfig } from '@/lib/h3yun/types';
+import { env } from '@/env';
+import { h3yunSchemaConfig } from '@/config/h3yun.config';
 
 interface SalesData {
   orderCount: number;
@@ -8,6 +13,70 @@ interface SalesData {
   salesQuantity30d: number;
   lastOrderDate?: string;
   siteName?: string;
+}
+
+// SKU映射缓存（内存缓存，避免每次请求都加载）
+let skuMappingCache: {
+  index: MappingIndex | null;
+  loadedAt: number;
+  ttl: number; // 缓存有效期（毫秒）
+} = {
+  index: null,
+  loadedAt: 0,
+  ttl: 5 * 60 * 1000, // 5分钟缓存
+};
+
+/**
+ * 获取SKU映射索引（带缓存）
+ */
+async function getSkuMappingIndex(): Promise<MappingIndex | null> {
+  const now = Date.now();
+
+  // 检查缓存是否有效
+  if (skuMappingCache.index && (now - skuMappingCache.loadedAt) < skuMappingCache.ttl) {
+    console.log('[SKU Mapping] 使用缓存的映射索引');
+    return skuMappingCache.index;
+  }
+
+  try {
+    console.log('[SKU Mapping] 加载氚云SKU映射表...');
+
+    // 检查配置是否完整
+    if (!env.H3YUN_ENGINE_CODE || !env.H3YUN_ENGINE_SECRET) {
+      console.log('[SKU Mapping] 氚云配置不完整，跳过SKU映射');
+      return null;
+    }
+
+    const config: H3YunConfig = {
+      engineCode: env.H3YUN_ENGINE_CODE,
+      engineSecret: env.H3YUN_ENGINE_SECRET,
+      schemaCode: h3yunSchemaConfig.inventorySchemaCode,
+      skuMappingSchemaCode: h3yunSchemaConfig.skuMappingSchemaCode,
+    };
+
+    const client = createH3YunClient(config);
+    const mappingData = await client.fetchSkuMappings(500);
+
+    if (mappingData.length === 0) {
+      console.log('[SKU Mapping] 映射表为空，跳过SKU映射');
+      return null;
+    }
+
+    const index = buildMappingIndex(mappingData);
+
+    // 更新缓存
+    skuMappingCache = {
+      index,
+      loadedAt: now,
+      ttl: 5 * 60 * 1000,
+    };
+
+    console.log(`[SKU Mapping] 映射索引加载完成: ${index.h3yunToWoo.size} 个氚云SKU`);
+    return index;
+  } catch (error) {
+    console.error('[SKU Mapping] 加载映射索引失败:', error);
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -23,19 +92,20 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { 
-      skus, 
-      siteIds, 
-      statuses = ['completed', 'processing'], 
-      dateStart, 
+    const {
+      skus,
+      siteIds,
+      statuses = ['completed', 'processing'],
+      dateStart,
       dateEnd,
       daysBack = 30,
-      strictMatch = false // 新增：是否使用严格匹配
+      strictMatch = false, // 是否使用严格匹配
+      useSkuMapping = true // 新增：是否使用SKU映射（默认启用）
     } = body;
 
     if (!skus || !Array.isArray(skus) || skus.length === 0) {
-      return NextResponse.json({ 
-        error: 'No SKUs provided' 
+      return NextResponse.json({
+        error: 'No SKUs provided'
       }, { status: 400 });
     }
 
@@ -65,10 +135,66 @@ export async function POST(request: NextRequest) {
     }
     
     // 标准化SKU格式（去除空格，可选转大写）
-    const normalizedSkus = strictMatch 
+    let normalizedSkus = strictMatch
       ? skus.map(sku => sku.trim()) // 严格模式：只去除空格
       : skus.map(sku => sku.trim().toUpperCase()); // 宽松模式：转大写
-    
+
+    // ============ SKU 映射处理 ============
+    // 将 ERP SKU (如 SU-06) 转换为 WooCommerce SKU (如 VS5-1116)
+    let skuMappingIndex: MappingIndex | null = null;
+    const erpToWooMapping = new Map<string, string[]>(); // ERP SKU -> WooCommerce SKU[]
+    const wooToErpMapping = new Map<string, string>();   // WooCommerce SKU -> ERP SKU
+
+    if (useSkuMapping) {
+      skuMappingIndex = await getSkuMappingIndex();
+
+      if (skuMappingIndex) {
+        infoLog(`[SKU Mapping] 启用SKU映射，氚云SKU数: ${skuMappingIndex.h3yunToWoo.size}`);
+
+        // 遍历所有输入的 SKU，查找对应的 WooCommerce SKU
+        const expandedSkus: string[] = [];
+        let mappedCount = 0;
+        let unmappedCount = 0;
+
+        for (const erpSku of normalizedSkus) {
+          const wooSkus = getWooCommerceSkus(erpSku, skuMappingIndex);
+
+          if (wooSkus.length > 0) {
+            // 找到映射，使用 WooCommerce SKU
+            erpToWooMapping.set(erpSku, wooSkus);
+            for (const wooSku of wooSkus) {
+              expandedSkus.push(wooSku);
+              wooToErpMapping.set(wooSku.toUpperCase(), erpSku);
+            }
+            mappedCount++;
+          } else {
+            // 没有映射，使用原始 SKU
+            expandedSkus.push(erpSku);
+            unmappedCount++;
+          }
+        }
+
+        infoLog(`[SKU Mapping] 映射结果: ${mappedCount} 个有映射, ${unmappedCount} 个无映射`);
+
+        if (expandedSkus.length !== normalizedSkus.length) {
+          infoLog(`[SKU Mapping] SKU扩展: ${normalizedSkus.length} -> ${expandedSkus.length}`);
+        }
+
+        // 使用扩展后的 SKU 列表进行查询
+        normalizedSkus = [...new Set(expandedSkus)]; // 去重
+
+        // 打印一些映射示例
+        if (isDev && mappedCount > 0) {
+          const sampleMappings = Array.from(erpToWooMapping.entries()).slice(0, 3);
+          debugLog('[SKU Mapping] 映射示例:', sampleMappings.map(([erp, woo]) => `${erp} -> ${woo.join(', ')}`));
+        }
+      } else {
+        debugLog('[SKU Mapping] 未能加载映射索引，使用原始SKU');
+      }
+    } else {
+      debugLog('[SKU Mapping] SKU映射已禁用');
+    }
+
     if (isDev && skus.length <= 10) {
       debugLog('Normalized SKUs:', normalizedSkus);
     } else if (isDev) {
@@ -400,9 +526,9 @@ export async function POST(request: NextRequest) {
     // 创建SKU映射表（标准化SKU -> 原始SKU）和（原始SKU -> 原始SKU）
     const skuMapping = new Map<string, string>();
     skus.forEach((sku, index) => {
-      const normalized = normalizedSkus[index];
+      const originalNormalized = strictMatch ? sku.trim() : sku.trim().toUpperCase();
       // 支持标准化和原始两种格式的映射
-      skuMapping.set(normalized, sku);
+      skuMapping.set(originalNormalized, sku);
       skuMapping.set(sku, sku);
       skuMapping.set(sku.trim(), sku); // 也映射去除空格的版本
       salesDataMap.set(sku, new Map());
@@ -415,6 +541,7 @@ export async function POST(request: NextRequest) {
       const processedOrders = new Set<string>(); // 防止重复计算订单
       let matchedItems = 0;
       let unmatchedItems = 0;
+      let mappedItems = 0; // 通过SKU映射匹配的数量
 
       orderItems.forEach((item: any) => {
         const dbSku = item.sku?.trim(); // 保留原始大小写，只去除空格
@@ -425,19 +552,28 @@ export async function POST(request: NextRequest) {
         const siteName = order.wc_sites.name;
         const orderDate = new Date(order.date_created);
         const isWithin30Days = orderDate >= thirtyDaysAgo;
-        
+
         // 尝试多种方式找到对应的原始SKU
         let originalSku = skuMapping.get(dbSku) || skuMapping.get(dbSkuUpper);
-        
+
+        // 如果直接映射找不到，尝试通过 WooCommerce -> ERP 映射查找
+        if (!originalSku && wooToErpMapping.size > 0) {
+          const erpSku = wooToErpMapping.get(dbSkuUpper);
+          if (erpSku) {
+            originalSku = erpSku;
+            mappedItems++;
+          }
+        }
+
         if (!originalSku) {
           // 尝试精确匹配原始SKU列表
-          originalSku = skus.find(sku => 
-            sku === dbSku || 
-            sku.trim() === dbSku || 
+          originalSku = skus.find(sku =>
+            sku === dbSku ||
+            sku.trim() === dbSku ||
             sku.toUpperCase() === dbSkuUpper
           );
         }
-        
+
         if (!originalSku) {
           unmatchedItems++;
           if (isDev && unmatchedItems <= 5) {
@@ -445,7 +581,7 @@ export async function POST(request: NextRequest) {
           }
           return; // 跳过不在查询列表中的SKU
         }
-        
+
         matchedItems++;
         
         const orderKey = `${originalSku}-${order.id}-${siteId}`;
@@ -497,6 +633,9 @@ export async function POST(request: NextRequest) {
       });
       
       debugLog(`Matched ${matchedItems} items, unmatched ${unmatchedItems} items`);
+      if (mappedItems > 0) {
+        infoLog(`[SKU Mapping] 通过映射匹配: ${mappedItems} 条订单记录`);
+      }
     } else {
       debugLog('No order items found for the queried SKUs');
     }
@@ -565,7 +704,12 @@ export async function POST(request: NextRequest) {
       source: 'supabase',
       processedSkus: skus.length,
       sites: sites || [],
-      data: result
+      data: result,
+      skuMappingUsed: useSkuMapping && erpToWooMapping.size > 0,
+      skuMappingStats: erpToWooMapping.size > 0 ? {
+        mappedSkus: erpToWooMapping.size,
+        totalWooSkus: wooToErpMapping.size,
+      } : undefined,
     });
 
   } catch (error: any) {
