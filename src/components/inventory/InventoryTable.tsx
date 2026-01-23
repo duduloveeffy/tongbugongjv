@@ -10,12 +10,18 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   type InventoryItem,
   calculateNetStock,
   getStockStatusColor,
   getSyncButtonColor,
   getSyncButtonText,
-  shouldSyncQuantity,
+  LOW_STOCK_THRESHOLD,
 } from '@/lib/inventory-utils';
 import { type SortField, useInventoryStore } from '@/store/inventory';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
@@ -532,40 +538,75 @@ export function InventoryTable({
                         <MultiSiteStatusBadge multiSiteData={item.multiSiteProductData} />
                       </td>
                       <td className="whitespace-nowrap p-2 align-middle">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
+                        {/* 低库存产品（净库存1-10）：下拉菜单提供多种同步选项 */}
+                        {netStock > 0 && netStock <= LOW_STOCK_THRESHOLD ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
                               <Button
                                 size="sm"
                                 disabled={isSyncing || !item.productData}
-                                variant={getSyncButtonColor(isOnline, netStock, item.productData?.stockStatus, item.productData?.stockQuantity) as any}
+                                variant={item.productData?.stockQuantity === netStock ? 'warning-muted' : 'warning' as any}
+                              >
+                                {isSyncing ? '同步中...' : `同步数量(${netStock})`}
+                                <ChevronDown className="ml-1 h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
                                 onClick={() => {
-                                  const currentStockStatus = item.productData?.stockStatus || 'outofstock';
-                                  // 判断是否需要同步具体数量（低库存情况）
-                                  if (shouldSyncQuantity(currentStockStatus, netStock)) {
-                                    // 低库存：同步具体数量
-                                    // 防超卖：取 ERP 库存和 WC 库存的最小值
-                                    const wcQuantity = item.productData?.stockQuantity;
-                                    const effectiveQuantity = wcQuantity !== null && wcQuantity !== undefined && wcQuantity < netStock
-                                      ? wcQuantity
-                                      : netStock;
-                                    onSyncSku(item.产品代码, true, selectedSiteId || undefined, effectiveQuantity);
-                                  } else {
-                                    // 正常情况：切换库存状态
-                                    const shouldBeInStock = currentStockStatus === 'outofstock';
-                                    onSyncSku(item.产品代码, shouldBeInStock, selectedSiteId || undefined);
-                                  }
+                                  // 同步具体数量（默认行为）
+                                  const wcQuantity = item.productData?.stockQuantity;
+                                  const effectiveQuantity = wcQuantity !== null && wcQuantity !== undefined && wcQuantity < netStock
+                                    ? wcQuantity
+                                    : netStock;
+                                  onSyncSku(item.产品代码, true, selectedSiteId || undefined, effectiveQuantity);
                                 }}
                               >
-                                {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock, item.productData?.stockStatus, item.productData?.stockQuantity)}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>同步到: {selectedSiteName || '默认站点'}</p>
-                              {selectedSiteId && <p className="text-xs text-muted-foreground">ID: {selectedSiteId}</p>}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
+                                同步数量 ({netStock})
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  // 同步为无货
+                                  onSyncSku(item.产品代码, false, selectedSiteId || undefined);
+                                }}
+                              >
+                                同步为无货
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  // 同步为有货（不带数量）
+                                  onSyncSku(item.产品代码, true, selectedSiteId || undefined);
+                                }}
+                              >
+                                同步为有货
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          /* 非低库存产品：普通按钮 */
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  disabled={isSyncing || !item.productData}
+                                  variant={getSyncButtonColor(isOnline, netStock, item.productData?.stockStatus, item.productData?.stockQuantity) as any}
+                                  onClick={() => {
+                                    const currentStockStatus = item.productData?.stockStatus || 'outofstock';
+                                    const shouldBeInStock = currentStockStatus === 'outofstock';
+                                    onSyncSku(item.产品代码, shouldBeInStock, selectedSiteId || undefined);
+                                  }}
+                                >
+                                  {isSyncing ? '同步中...' : getSyncButtonText(isOnline, netStock, item.productData?.stockStatus, item.productData?.stockQuantity)}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>同步到: {selectedSiteName || '默认站点'}</p>
+                                {selectedSiteId && <p className="text-xs text-muted-foreground">ID: {selectedSiteId}</p>}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </td>
                     </>
                   )}
