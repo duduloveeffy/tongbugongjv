@@ -52,6 +52,7 @@ npm run typecheck       # Run TypeScript type checking
 - **NEW**: Incremental sync with checkpoint tracking
 - **NEW**: Automated scheduled sync tasks
 - **NEW**: Comprehensive sync monitoring and logging
+- **NEW**: 低库存产品（净库存1-10）下拉菜单同步选项：同步数量/同步为无货/同步为有货
 - Product detection and stock status synchronization
 - Support for both simple and variant products
 - Intelligent sync recommendations based on stock levels
