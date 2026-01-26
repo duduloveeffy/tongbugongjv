@@ -848,6 +848,12 @@ export async function GET(request: NextRequest) {
       for (let i = 0; i < lowStockSkus.length; i += batchSize) {
         const batch = lowStockSkus.slice(i, i + batchSize);
 
+        // 🔍 调试：检查 KP5-15 是否在当前批次中
+        const debugSkuInBatch = batch.some(s => DEBUG_WC_SKUS.some(d => d.toLowerCase() === s.toLowerCase()));
+        if (debugSkuInBatch) {
+          console.log(`[SingleSite ${batchId}] 🎯 调试SKU批次(7.3-API): 批次 ${Math.floor(i/batchSize)+1}, 包含调试SKU, 批次SKU列表: ${batch.filter(s => DEBUG_WC_SKUS.some(d => d.toLowerCase() === s.toLowerCase())).join(', ')}`);
+        }
+
         try {
           // 使用 sku 参数批量查询
           const skuParam = batch.join(',');
@@ -857,8 +863,27 @@ export async function GET(request: NextRequest) {
             headers: { 'Authorization': `Basic ${auth}` }
           });
 
+          // 🔍 调试：检查 API 响应
+          if (debugSkuInBatch) {
+            console.log(`[SingleSite ${batchId}] 🎯 调试SKU API响应(7.3-API): status=${response.status}, ok=${response.ok}`);
+          }
+
           if (response.ok) {
             const products = await response.json();
+
+            // 🔍 调试：检查返回的产品列表
+            if (debugSkuInBatch) {
+              const returnedSkus = products.map((p: any) => p.sku).filter(Boolean);
+              console.log(`[SingleSite ${batchId}] 🎯 调试SKU API返回(7.3-API): 返回 ${products.length} 个产品, SKU列表: ${returnedSkus.slice(0, 10).join(', ')}${returnedSkus.length > 10 ? '...' : ''}`);
+              // 检查 KP5-15 是否在返回列表中
+              const foundDebug = products.find((p: any) => DEBUG_WC_SKUS.some(d => d.toLowerCase() === (p.sku || '').toLowerCase()));
+              if (foundDebug) {
+                console.log(`[SingleSite ${batchId}] 🎯 调试SKU找到(7.3-API): sku=${foundDebug.sku}, stock_status=${foundDebug.stock_status}, stock_quantity=${foundDebug.stock_quantity}, type=${foundDebug.type}`);
+              } else {
+                console.log(`[SingleSite ${batchId}] 🎯 调试SKU未找到(7.3-API): KP5-15 不在API返回结果中!`);
+              }
+            }
+
             for (const product of products) {
               if (product.sku) {
                 // 保留 null 值，null 表示"不管理库存"，与 0（库存耗尽）含义不同
