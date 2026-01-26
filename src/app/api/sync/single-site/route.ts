@@ -19,6 +19,17 @@ import { detectProducts } from '@/lib/product-detection';
 // 低库存阈值：当 WC 显示有货但本地净库存在 1-10 时，同步具体数量而非状态
 const LOW_STOCK_THRESHOLD = 10;
 
+// 调试目标 SKU（ERP SKU 和 WC SKU）
+const DEBUG_ERP_SKUS = ['KP-15', 'kp-15'];
+const DEBUG_WC_SKUS = ['KP5-15', 'kp5-15'];
+
+// 检查是否是调试目标
+function isDebugSku(erpSku: string, wooSku?: string): boolean {
+  const erpMatch = DEBUG_ERP_SKUS.some(s => s.toLowerCase() === erpSku.toLowerCase());
+  const wooMatch = wooSku ? DEBUG_WC_SKUS.some(s => s.toLowerCase() === wooSku.toLowerCase()) : false;
+  return erpMatch || wooMatch;
+}
+
 // 发送企业微信通知
 async function sendWechatNotification(
   webhookUrl: string,
@@ -183,14 +194,6 @@ async function syncSku(
     const maxRetries = 2;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      // 🔍 诊断：验证传入的站点参数
-      console.log(`[syncSku] ${sku} 调用参数 (尝试 ${attempt}/${maxRetries}):`, {
-        siteUrl: cleanUrl,
-        siteId,
-        apiKeyPrefix: consumerKey?.substring(0, 15),
-        完整请求URL: searchUrl,
-      });
-
       const searchResponse = await fetch(searchUrl, {
         method: 'GET',
         headers: {
@@ -199,14 +202,7 @@ async function syncSku(
         },
       });
 
-      // 🔍 诊断：记录响应详情
       const responseText = await searchResponse.text();
-      console.log(`[syncSku 诊断] ${sku} API响应 (尝试 ${attempt}):`, {
-        httpStatus: searchResponse.status,
-        contentType: searchResponse.headers.get('content-type'),
-        bodyLength: responseText.length,
-        bodyPreview: responseText.substring(0, 200),
-      });
 
       if (!searchResponse.ok) {
         lastError = `搜索产品失败: HTTP ${searchResponse.status}`;
@@ -581,6 +577,17 @@ export async function GET(request: NextRequest) {
     let inventoryData = mergeWarehouseData(rawInventoryData);
     console.log(`[SingleSite ${batchId}] 合并后 ${inventoryData.length} 条记录`);
 
+    // 🔍 调试：检查目标SKU的ERP数据
+    for (const debugErpSku of DEBUG_ERP_SKUS) {
+      const found = inventoryData.find(item => item.产品代码.toLowerCase() === debugErpSku.toLowerCase());
+      if (found) {
+        const netStock = calculateNetStock(found);
+        console.log(`[SingleSite ${batchId}] 🎯 调试SKU ERP数据(5): ${debugErpSku} → 可售=${found.可售库存}, 缺货=${found.缺货}, 净库存=${netStock}`);
+      } else {
+        console.log(`[SingleSite ${batchId}] 🎯 调试SKU ERP数据(5): ${debugErpSku} → 未在ERP数据中找到`);
+      }
+    }
+
     // 5.1 应用品类筛选（使用 includes 模糊匹配，与手动同步一致）
     if (mergedFilters.categoryFilters.length > 0) {
       const beforeCount = inventoryData.length;
@@ -640,6 +647,16 @@ export async function GET(request: NextRequest) {
           skuMappings[h3yunSku] = relations.map(r => r.woocommerceSku);
         }
         console.log(`[SingleSite ${batchId}] SKU 映射加载完成: ${Object.keys(skuMappings).length} 个映射`);
+
+        // 🔍 调试：检查目标SKU的映射
+        for (const debugSku of DEBUG_ERP_SKUS) {
+          const mappedSkus = skuMappings[debugSku] || skuMappings[debugSku.toUpperCase()] || skuMappings[debugSku.toLowerCase()];
+          if (mappedSkus) {
+            console.log(`[SingleSite ${batchId}] 🎯 调试SKU映射: ${debugSku} → [${mappedSkus.join(', ')}]`);
+          } else {
+            console.log(`[SingleSite ${batchId}] 🎯 调试SKU映射: ${debugSku} → 无映射(使用原SKU)`);
+          }
+        }
       } else {
         console.log(`[SingleSite ${batchId}] 没有 SKU 映射数据`);
       }
@@ -673,6 +690,13 @@ export async function GET(request: NextRequest) {
 
     console.log(`[SingleSite ${batchId}] 产品缓存: ${productStatus.size} 个`);
 
+    // 🔍 调试：检查目标SKU的缓存状态
+    for (const debugWooSku of DEBUG_WC_SKUS) {
+      const cachedStatus = productStatus.get(debugWooSku) || productStatus.get(debugWooSku.toUpperCase()) || productStatus.get(debugWooSku.toLowerCase());
+      const cachedQty = supabaseQuantity.get(debugWooSku) || supabaseQuantity.get(debugWooSku.toUpperCase()) || supabaseQuantity.get(debugWooSku.toLowerCase());
+      console.log(`[SingleSite ${batchId}] 🎯 调试SKU缓存(7): ${debugWooSku} → 状态=${cachedStatus ?? '未缓存'}, 数量=${cachedQty ?? 'null'}`);
+    }
+
     // 7.1 收集所有需要检测的 WooCommerce SKU
     const allWooSkus: string[] = [];
     for (const item of inventoryData) {
@@ -683,6 +707,12 @@ export async function GET(request: NextRequest) {
           allWooSkus.push(wooSku);
         }
       }
+    }
+
+    // 🔍 调试：检查目标SKU是否在未命中列表中
+    for (const debugWooSku of DEBUG_WC_SKUS) {
+      const inList = allWooSkus.some(s => s.toLowerCase() === debugWooSku.toLowerCase());
+      console.log(`[SingleSite ${batchId}] 🎯 调试SKU缓存命中(7.1): ${debugWooSku} → ${inList ? '未命中，需API检测' : '已命中，跳过API'}`);
     }
 
     // 7.2 缓存未命中的 SKU，调用 WC API 查询（与手动同步一致）
@@ -725,6 +755,12 @@ export async function GET(request: NextRequest) {
 
       console.log(`[SingleSite ${batchId}] API 检测完成，产品状态总数: ${productStatus.size} 个`);
 
+      // 🔍 调试：API检测后检查目标SKU状态
+      for (const debugWooSku of DEBUG_WC_SKUS) {
+        const status = productStatus.get(debugWooSku) || productStatus.get(debugWooSku.toUpperCase()) || productStatus.get(debugWooSku.toLowerCase());
+        console.log(`[SingleSite ${batchId}] 🎯 调试SKU API检测后(7.2): ${debugWooSku} → 状态=${status ?? '未找到'}`);
+      }
+
       // 检测完成后添加 1 秒冷却期，让 WooCommerce API 恢复
       console.log(`[SingleSite ${batchId}] API 冷却期: 等待 1 秒...`);
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -736,6 +772,7 @@ export async function GET(request: NextRequest) {
     // 2. Supabase缓存库存低（0-10）且状态为 instock（修复数据断层：WC被买空但缓存未更新）
     // 3. Supabase缓存库存为null但状态为instock（可能数据不完整）
     const lowStockSkus: string[] = [];
+    const dataGapSkus: string[] = []; // 收集数据断层 SKU 用于汇总日志
     for (const item of inventoryData) {
       const sku = item.产品代码;
       const netStock = calculateNetStock(item);
@@ -766,13 +803,31 @@ export async function GET(request: NextRequest) {
 
           if (erpLowStock || supabaseLowStock || supabaseNullButInstock) {
             lowStockSkus.push(wooSku);
-            // 调试日志：记录为什么这个 SKU 被加入低库存列表
+            // 收集数据断层 SKU（非 ERP 低库存触发的）
             if (!erpLowStock) {
-              console.log(`[SingleSite ${batchId}] 数据断层检测: ${wooSku} - ERP=${netStock}, Supabase=${sbQuantity ?? 'null'}, 原因=${supabaseLowStock ? 'Supabase低库存' : 'Supabase为null'}`);
+              dataGapSkus.push(wooSku);
             }
           }
         }
       }
+    }
+
+    // 🔍 调试：检查目标SKU是否在低库存列表中
+    for (const debugWooSku of DEBUG_WC_SKUS) {
+      const inLowStock = lowStockSkus.some(s => s.toLowerCase() === debugWooSku.toLowerCase());
+      const inDataGap = dataGapSkus.some(s => s.toLowerCase() === debugWooSku.toLowerCase());
+      if (inLowStock || inDataGap) {
+        console.log(`[SingleSite ${batchId}] 🎯 调试SKU低库存检测(7.3): ${debugWooSku} → 低库存=${inLowStock}, 数据断层=${inDataGap}`);
+      } else {
+        console.log(`[SingleSite ${batchId}] 🎯 调试SKU低库存检测(7.3): ${debugWooSku} → 不在低库存/数据断层列表中`);
+      }
+    }
+
+    // 汇总输出数据断层检测日志
+    if (dataGapSkus.length > 0) {
+      const preview = dataGapSkus.slice(0, 5).join(', ');
+      const suffix = dataGapSkus.length > 5 ? ` ...等${dataGapSkus.length}个` : '';
+      console.log(`[SingleSite ${batchId}] 数据断层检测: ${dataGapSkus.length} 个 SKU (${preview}${suffix})`);
     }
 
     if (lowStockSkus.length > 0) {
@@ -785,6 +840,8 @@ export async function GET(request: NextRequest) {
       const supabaseUpdates: Array<{ sku: string; stock_quantity: number; stock_status: string }> = [];
       // 用于更新内存中的 productStatus（供后续同步判断使用）
       const wcRealTimeStatus = new Map<string, string>();
+      // 收集状态不一致的 SKU 用于汇总日志
+      const statusMismatchSkus: string[] = [];
 
       // 分批处理，每批 20 个（避免 URL 过长）
       const batchSize = 20;
@@ -802,8 +859,6 @@ export async function GET(request: NextRequest) {
 
           if (response.ok) {
             const products = await response.json();
-            let updated = 0;
-            let statusChanged = 0; // 记录状态发生变化的数量
             for (const product of products) {
               if (product.sku) {
                 // 保留 null 值，null 表示"不管理库存"，与 0（库存耗尽）含义不同
@@ -813,12 +868,10 @@ export async function GET(request: NextRequest) {
                 wcRealTimeStatus.set(product.sku, status);
                 // Supabase 更新时 null 转为 0（数据库字段要求）
                 supabaseUpdates.push({ sku: product.sku, stock_quantity: quantity ?? 0, stock_status: status });
-                updated++;
                 // 检查状态是否与缓存不一致
                 const cachedStatus = productStatus.get(product.sku);
                 if (cachedStatus && cachedStatus !== status) {
-                  statusChanged++;
-                  console.log(`[SingleSite ${batchId}] 状态不一致检测: ${product.sku} - 缓存=${cachedStatus}, WC实时=${status}, 数量=${quantity}`);
+                  statusMismatchSkus.push(product.sku);
                 }
               }
               // 处理变体产品
@@ -831,18 +884,15 @@ export async function GET(request: NextRequest) {
                     wcRealTimeQuantity.set(variation.sku, quantity);
                     wcRealTimeStatus.set(variation.sku, status);
                     supabaseUpdates.push({ sku: variation.sku, stock_quantity: quantity ?? 0, stock_status: status });
-                    updated++;
                     // 检查状态是否与缓存不一致
                     const cachedStatus = productStatus.get(variation.sku);
                     if (cachedStatus && cachedStatus !== status) {
-                      statusChanged++;
-                      console.log(`[SingleSite ${batchId}] 状态不一致检测: ${variation.sku} - 缓存=${cachedStatus}, WC实时=${status}, 数量=${quantity}`);
+                      statusMismatchSkus.push(variation.sku);
                     }
                   }
                 }
               }
             }
-            console.log(`[SingleSite ${batchId}] 低库存批次 ${Math.floor(i / batchSize) + 1}: 查询 ${batch.length} 个，更新 ${updated} 个${statusChanged > 0 ? `，状态变化 ${statusChanged} 个` : ''}`);
           }
         } catch (error) {
           console.warn(`[SingleSite ${batchId}] 低库存批次查询失败:`, error);
@@ -852,6 +902,13 @@ export async function GET(request: NextRequest) {
         if (i + batchSize < lowStockSkus.length) {
           await new Promise(resolve => setTimeout(resolve, 300));
         }
+      }
+
+      // 汇总输出状态不一致日志
+      if (statusMismatchSkus.length > 0) {
+        const preview = statusMismatchSkus.slice(0, 5).join(', ');
+        const suffix = statusMismatchSkus.length > 5 ? ` ...等${statusMismatchSkus.length}个` : '';
+        console.log(`[SingleSite ${batchId}] 状态不一致检测: ${statusMismatchSkus.length} 个 (${preview}${suffix})`);
       }
 
       // 批量更新 Supabase 缓存（同时更新 stock_status 和 stock_quantity）
@@ -881,6 +938,14 @@ export async function GET(request: NextRequest) {
           supabaseQuantity.set(item.sku, item.stock_quantity);
         }
         console.log(`[SingleSite ${batchId}] 内存缓存已更新: ${supabaseUpdates.length} 个 SKU`);
+
+        // 🔍 调试：低库存实时拉取后检查目标SKU状态
+        for (const debugWooSku of DEBUG_WC_SKUS) {
+          const wcQty = wcRealTimeQuantity.get(debugWooSku) || wcRealTimeQuantity.get(debugWooSku.toUpperCase()) || wcRealTimeQuantity.get(debugWooSku.toLowerCase());
+          const status = productStatus.get(debugWooSku) || productStatus.get(debugWooSku.toUpperCase()) || productStatus.get(debugWooSku.toLowerCase());
+          const sbQty = supabaseQuantity.get(debugWooSku) || supabaseQuantity.get(debugWooSku.toUpperCase()) || supabaseQuantity.get(debugWooSku.toLowerCase());
+          console.log(`[SingleSite ${batchId}] 🎯 调试SKU实时拉取后(7.3): ${debugWooSku} → WC实时数量=${wcQty ?? 'null'}, 内存状态=${status ?? '未知'}, Supabase数量=${sbQty ?? 'null'}`);
+        }
       }
 
       console.log(`[SingleSite ${batchId}] 低库存/数据断层实时状态拉取完成`);
@@ -900,14 +965,10 @@ export async function GET(request: NextRequest) {
     let failed = 0;
     const details: Array<{ sku: string; action: string; quantity?: number; error?: string }> = [];
 
-    // 诊断：检查特定 SKU
-    const debugSkus = ['SU-01', 'VS2-01', 'VS5-01'];
-    for (const debugSku of debugSkus) {
-      const inInventory = inventoryData.find(i => i.产品代码 === debugSku);
-      const inMapping = skuMappings[debugSku];
-      const inCache = productStatus.get(debugSku);
-      console.log(`[SingleSite ${batchId}] 诊断 ${debugSku}: 库存=${inInventory ? calculateNetStock(inInventory) : '无'}, 映射=${inMapping ? inMapping.join(',') : '无'}, 缓存状态=${inCache || '无'}`);
-    }
+    // 收集同步决策日志用于汇总
+    const lowStockRestockSkus: string[] = [];  // 低库存补货
+    const lowStockAntiOversellSkus: string[] = [];  // 低库存防超卖
+    const dataGapRepairSkus: string[] = [];  // 数据断层修复
 
     // 同步节流延迟（每次同步后等待，避免 API 限流）
     const SYNC_DELAY = 200; // 每次同步后延迟 200ms
@@ -953,7 +1014,7 @@ export async function GET(request: NextRequest) {
             // 如果 WC 已经 outofstock，说明需要补货，走情况3逻辑（以 ERP 为准）
             if (wcStatus === 'outofstock' || (wcQuantity !== null && wcQuantity !== undefined && wcQuantity <= 0)) {
               // WC 已经无货，ERP 有货 → 以 ERP 为准，补货上架
-              console.log(`[SingleSite ${batchId}] 低库存补货 ${wooSku}: WC已无货(status=${wcStatus}, qty=${wcQuantity}), ERP=${netStock} → 以ERP为准同步为instock`);
+              lowStockRestockSkus.push(wooSku);
               needSync = true;
               targetStatus = 'instock';
               syncStockQuantity = netStock; // 以 ERP 库存为准
@@ -963,8 +1024,7 @@ export async function GET(request: NextRequest) {
               if (wcQuantity !== null && wcQuantity !== undefined) {
                 effectiveQuantity = Math.min(netStock, wcQuantity);
               }
-
-              console.log(`[SingleSite ${batchId}] 低库存防超卖 ${wooSku}: ERP=${netStock}, WC实时=${wcQuantity ?? 'null'} → 有效库存=${effectiveQuantity}`);
+              lowStockAntiOversellSkus.push(wooSku);
 
               // 只有当计算出的数量与 WC 当前数量不同时才需要同步
               const currentWcQuantity = wcQuantity ?? supabaseQuantity.get(wooSku);
@@ -990,7 +1050,7 @@ export async function GET(request: NextRequest) {
           const wcQuantity = wcRealTimeQuantity.get(wooSku);
 
           if (wcStatus === 'outofstock' || (wcQuantity !== null && wcQuantity !== undefined && wcQuantity <= 0)) {
-            console.log(`[SingleSite ${batchId}] 数据断层修复 ${wooSku}: Supabase=${currentStatus}, WC实际=${wcStatus}(qty=${wcQuantity}), ERP=${netStock} → 补货上架`);
+            dataGapRepairSkus.push(wooSku);
             needSync = true;
             targetStatus = 'instock';
             // 高库存只同步状态，低库存同步数量
@@ -1005,9 +1065,46 @@ export async function GET(request: NextRequest) {
           console.log(`[SingleSite ${batchId}] 处理 ${sku}→${wooSku}: 净库存=${netStock}, WC状态=${currentStatus}, 需同步=${needSync}, 目标=${targetStatus}, 同步数量=${syncStockQuantity ?? '无'}`);
         }
 
+        // 🔍 调试：KP-15/KP5-15 超详细日志
+        if (isDebugSku(sku, wooSku)) {
+          const wcQty = wcRealTimeQuantity.get(wooSku);
+          const sbQty = supabaseQuantity.get(wooSku);
+          console.log(`[SingleSite ${batchId}] ========== 🎯 调试SKU同步决策(8) ==========`);
+          console.log(`[SingleSite ${batchId}] 🎯 ERP SKU: ${sku}`);
+          console.log(`[SingleSite ${batchId}] 🎯 WC SKU: ${wooSku}`);
+          console.log(`[SingleSite ${batchId}] 🎯 ERP净库存: ${netStock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 有货阈值: ${instockThreshold}`);
+          console.log(`[SingleSite ${batchId}] 🎯 isInStock(ERP>${instockThreshold}): ${isInStock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 currentStatus(内存): ${currentStatus}`);
+          console.log(`[SingleSite ${batchId}] 🎯 Supabase缓存数量: ${sbQty ?? 'null'}`);
+          console.log(`[SingleSite ${batchId}] 🎯 WC实时数量: ${wcQty ?? 'null'}`);
+          console.log(`[SingleSite ${batchId}] 🎯 LOW_STOCK_THRESHOLD: ${LOW_STOCK_THRESHOLD}`);
+          console.log(`[SingleSite ${batchId}] 🎯 config.sync_to_instock: ${config.sync_to_instock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 config.sync_to_outofstock: ${config.sync_to_outofstock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 --- 情况判断 ---`);
+          console.log(`[SingleSite ${batchId}] 🎯 情况1(下架): currentStatus=instock && !isInStock && config.sync_to_outofstock → ${currentStatus === 'instock' && !isInStock && config.sync_to_outofstock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 情况2(低库存): currentStatus=instock && isInStock && netStock<=10 && config.sync_to_outofstock → ${currentStatus === 'instock' && isInStock && netStock <= LOW_STOCK_THRESHOLD && config.sync_to_outofstock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 情况3(上架): currentStatus=outofstock && isInStock && config.sync_to_instock → ${currentStatus === 'outofstock' && isInStock && config.sync_to_instock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 情况4(数据断层): currentStatus=instock && isInStock && config.sync_to_instock → ${currentStatus === 'instock' && isInStock && config.sync_to_instock}`);
+          console.log(`[SingleSite ${batchId}] 🎯 --- 决策结果 ---`);
+          console.log(`[SingleSite ${batchId}] 🎯 needSync: ${needSync}`);
+          console.log(`[SingleSite ${batchId}] 🎯 targetStatus: ${targetStatus ?? '无'}`);
+          console.log(`[SingleSite ${batchId}] 🎯 syncStockQuantity: ${syncStockQuantity ?? '无'}`);
+          console.log(`[SingleSite ${batchId}] ================================================`);
+        }
+
         if (!needSync || !targetStatus) {
+          // 🔍 调试：跳过同步日志
+          if (isDebugSku(sku, wooSku)) {
+            console.log(`[SingleSite ${batchId}] 🎯 调试SKU跳过(8): ${wooSku} → needSync=${needSync}, targetStatus=${targetStatus ?? '无'}`); 
+          }
           skipped++;
           continue;
+        }
+
+        // 🔍 调试：同步执行前日志
+        if (isDebugSku(sku, wooSku)) {
+          console.log(`[SingleSite ${batchId}] 🎯 调试SKU同步执行(9): ${wooSku} → 开始同步, 目标状态=${targetStatus}, 目标数量=${syncStockQuantity ?? '无'}`);
         }
 
         // 执行同步（传入 stockQuantity 参数）
@@ -1015,6 +1112,11 @@ export async function GET(request: NextRequest) {
 
         // 每次同步后延迟，避免 API 限流
         await new Promise(resolve => setTimeout(resolve, SYNC_DELAY));
+
+        // 🔍 调试：同步执行后日志
+        if (isDebugSku(sku, wooSku)) {
+          console.log(`[SingleSite ${batchId}] 🎯 调试SKU同步结果(9): ${wooSku} → 成功=${result.success}, 错误=${result.error ?? '无'}`);
+        }
 
         if (result.success) {
           if (syncStockQuantity !== undefined) {
@@ -1025,18 +1127,13 @@ export async function GET(request: NextRequest) {
             if (targetStatus === 'instock' && currentStatus === 'outofstock') {
               syncedToInstock++;
               details.push({ sku: wooSku, action: 'to_instock' });
-              console.log(`[SingleSite ${batchId}] ${wooSku} → instock + 数量=${syncStockQuantity} ✓`);
-            } else {
-              console.log(`[SingleSite ${batchId}] ${wooSku} → 数量=${syncStockQuantity} ✓`);
             }
           } else if (targetStatus === 'instock') {
             syncedToInstock++;
             details.push({ sku: wooSku, action: 'to_instock' });
-            console.log(`[SingleSite ${batchId}] ${wooSku} → ${targetStatus} ✓`);
           } else {
             syncedToOutofstock++;
             details.push({ sku: wooSku, action: 'to_outofstock' });
-            console.log(`[SingleSite ${batchId}] ${wooSku} → ${targetStatus} ✓`);
           }
         } else {
           failed++;
@@ -1055,6 +1152,46 @@ export async function GET(request: NextRequest) {
           console.error(`[SingleSite ${batchId}] SKU映射: ${skuMappings[sku]?.join(',') || '无映射'}`);
           console.error(`[SingleSite ${batchId}] ===================================`);
         }
+      }
+    }
+
+    // 汇总输出同步决策日志
+    if (lowStockRestockSkus.length > 0) {
+      const preview = lowStockRestockSkus.slice(0, 5).join(', ');
+      const suffix = lowStockRestockSkus.length > 5 ? ` ...等${lowStockRestockSkus.length}个` : '';
+      console.log(`[SingleSite ${batchId}] 低库存补货: ${lowStockRestockSkus.length} 个 (${preview}${suffix})`);
+    }
+    if (lowStockAntiOversellSkus.length > 0) {
+      const preview = lowStockAntiOversellSkus.slice(0, 5).join(', ');
+      const suffix = lowStockAntiOversellSkus.length > 5 ? ` ...等${lowStockAntiOversellSkus.length}个` : '';
+      console.log(`[SingleSite ${batchId}] 低库存防超卖: ${lowStockAntiOversellSkus.length} 个 (${preview}${suffix})`);
+    }
+    if (dataGapRepairSkus.length > 0) {
+      const preview = dataGapRepairSkus.slice(0, 5).join(', ');
+      const suffix = dataGapRepairSkus.length > 5 ? ` ...等${dataGapRepairSkus.length}个` : '';
+      console.log(`[SingleSite ${batchId}] 数据断层修复: ${dataGapRepairSkus.length} 个 (${preview}${suffix})`);
+    }
+
+    // 汇总输出同步结果日志
+    if (syncedToInstock > 0 || syncedToOutofstock > 0 || syncedQuantity > 0) {
+      const instockSkus = details.filter(d => d.action === 'to_instock').map(d => d.sku);
+      const outofstockSkus = details.filter(d => d.action === 'to_outofstock').map(d => d.sku);
+      const quantitySkus = details.filter(d => d.action === 'sync_quantity').map(d => `${d.sku}(${d.quantity})`);
+
+      if (instockSkus.length > 0) {
+        const preview = instockSkus.slice(0, 8).join(', ');
+        const suffix = instockSkus.length > 8 ? ` ...等${instockSkus.length}个` : '';
+        console.log(`[SingleSite ${batchId}] ✓ 同步有货: ${preview}${suffix}`);
+      }
+      if (outofstockSkus.length > 0) {
+        const preview = outofstockSkus.slice(0, 8).join(', ');
+        const suffix = outofstockSkus.length > 8 ? ` ...等${outofstockSkus.length}个` : '';
+        console.log(`[SingleSite ${batchId}] ✓ 同步无货: ${preview}${suffix}`);
+      }
+      if (quantitySkus.length > 0) {
+        const preview = quantitySkus.slice(0, 8).join(', ');
+        const suffix = quantitySkus.length > 8 ? ` ...等${quantitySkus.length}个` : '';
+        console.log(`[SingleSite ${batchId}] ✓ 同步数量: ${preview}${suffix}`);
       }
     }
 
