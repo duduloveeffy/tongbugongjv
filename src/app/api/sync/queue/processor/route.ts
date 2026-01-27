@@ -66,9 +66,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 根据任务类型执行同步
+    console.log(`[Processor] 开始处理任务: ${nextTask.id}, 类型: ${nextTask.task_type}, 站点: ${nextTask.site?.name}`);
+
     try {
       let result;
-      
+
       switch (nextTask.task_type) {
         case 'full':
           // 全量同步订单和产品
@@ -228,22 +230,42 @@ async function executeFullSync(supabase: any, task: any) {
 // 执行增量同步
 async function executeIncrementalSync(supabase: any, task: any) {
   const { site } = task;
+
+  console.log(`[Incremental Sync] 开始执行增量同步，站点: ${site?.name}, 有API密钥: ${!!site?.api_key}`);
+
   const results = {
     orders: { synced: 0, failed: 0 },
     products: { synced: 0, failed: 0 },
+    productCache: { synced: 0, failed: 0 },
     total: 0
   };
 
-  // 同步订单
+  // 步骤1：先全量刷新产品缓存（解决数据断层问题）
   await updateTaskProgress(supabase, task.id, {
-    percentage: 20,
+    percentage: 5,
+    message: '正在全量刷新产品缓存...'
+  });
+
+  try {
+    const cacheResult = await refreshProductCache(site);
+    results.productCache = cacheResult;
+    console.log(`[Incremental Sync] 产品缓存刷新完成: ${cacheResult.synced} 个产品`);
+  } catch (error: any) {
+    console.error('Product cache refresh error:', error);
+    results.productCache.failed = -1;
+    // 缓存刷新失败不阻断后续流程，继续执行
+  }
+
+  // 步骤2：增量同步订单
+  await updateTaskProgress(supabase, task.id, {
+    percentage: 30,
     message: '正在增量同步订单...'
   });
 
   try {
     const orderResult = await syncOrders(site, 'incremental', async (progress) => {
       await updateTaskProgress(supabase, task.id, {
-        percentage: 20 + Math.floor(progress * 0.3),
+        percentage: 30 + Math.floor(progress * 0.3),
         message: `增量同步订单... ${progress}%`
       });
     });
@@ -253,16 +275,16 @@ async function executeIncrementalSync(supabase: any, task: any) {
     results.orders.failed = -1;
   }
 
-  // 同步产品
+  // 步骤3：增量同步产品
   await updateTaskProgress(supabase, task.id, {
-    percentage: 50,
+    percentage: 60,
     message: '正在增量同步产品...'
   });
 
   try {
     const productResult = await syncProducts(site, 'incremental', async (progress) => {
       await updateTaskProgress(supabase, task.id, {
-        percentage: 50 + Math.floor(progress * 0.4),
+        percentage: 60 + Math.floor(progress * 0.35),
         message: `增量同步产品... ${progress}%`
       });
     });
@@ -272,8 +294,193 @@ async function executeIncrementalSync(supabase: any, task: any) {
     results.products.failed = -1;
   }
 
-  results.total = results.orders.synced + results.products.synced;
+  results.total = results.orders.synced + results.products.synced + results.productCache.synced;
   return results;
+}
+
+// 全量刷新产品缓存（调用 /api/sync/products-cache 逻辑）
+async function refreshProductCache(site: any): Promise<{ synced: number; failed: number }> {
+  console.log(`[RefreshProductCache] 开始刷新站点 ${site.name} 的产品缓存...`);
+
+  const auth = Buffer.from(`${site.api_key}:${site.api_secret}`).toString('base64');
+  const baseUrl = site.url.replace(/\/$/, '');
+
+  let syncedCount = 0;
+  let failedCount = 0;
+  let page = 1;
+  const perPage = 100;
+  let hasMore = true;
+
+  // 获取 Supabase 客户端
+  const { getSupabaseClient } = await import('@/lib/supabase');
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    throw new Error('Supabase not configured');
+  }
+
+  while (hasMore) {
+    try {
+      const response = await fetch(
+        `${baseUrl}/wp-json/wc/v3/products?page=${page}&per_page=${perPage}&order=asc&orderby=id`,
+        {
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(30000),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`WooCommerce API error: ${response.status}`);
+      }
+
+      const products = await response.json();
+      const totalPages = parseInt(response.headers.get('x-wp-totalpages') || '1');
+
+      if (products.length === 0) {
+        break;
+      }
+
+      // 处理并存储产品
+      const productsToInsert = products.map((product: any) => ({
+        site_id: site.id,
+        product_id: product.id,
+        sku: product.sku || `product-${product.id}`,
+        name: product.name,
+        type: product.type,
+        status: product.status,
+        stock_status: product.stock_status,
+        stock_quantity: product.stock_quantity,
+        manage_stock: product.manage_stock,
+        price: parseFloat(product.price || '0'),
+        regular_price: parseFloat(product.regular_price || '0'),
+        sale_price: parseFloat(product.sale_price || '0'),
+        categories: product.categories || [],
+        attributes: product.attributes || [],
+        variations: product.variations || [],
+        images: product.images || [],
+        permalink: product.permalink,
+        synced_at: new Date().toISOString(),
+      }));
+
+      const { error: insertError } = await supabase
+        .from('products')
+        .upsert(productsToInsert, {
+          onConflict: 'site_id,product_id'
+        });
+
+      if (insertError) {
+        console.error(`[RefreshProductCache] 插入批次 ${page} 失败:`, insertError);
+        failedCount += products.length;
+      } else {
+        syncedCount += products.length;
+      }
+
+      // 处理变体产品
+      for (const product of products) {
+        if (product.type === 'variable' && product.variations && product.variations.length > 0) {
+          try {
+            const variations = await fetchVariationsForCache(baseUrl, auth, product.id);
+
+            if (variations.length > 0) {
+              const variationsToInsert = variations.map((variation: any) => ({
+                site_id: site.id,
+                product_id: variation.id,
+                sku: variation.sku || `variation-${variation.id}`,
+                name: `${product.name} - ${variation.attributes?.map((a: any) => a.option).join(', ') || variation.id}`,
+                type: 'variation',
+                status: variation.status,
+                stock_status: variation.stock_status,
+                stock_quantity: variation.stock_quantity,
+                manage_stock: variation.manage_stock,
+                price: parseFloat(variation.price || '0'),
+                regular_price: parseFloat(variation.regular_price || '0'),
+                sale_price: parseFloat(variation.sale_price || '0'),
+                categories: product.categories || [],
+                attributes: variation.attributes || [],
+                variations: [],
+                images: variation.image ? [variation.image] : [],
+                permalink: variation.permalink || product.permalink,
+                parent_id: product.id,
+                synced_at: new Date().toISOString(),
+              }));
+
+              const { error: variationError } = await supabase
+                .from('products')
+                .upsert(variationsToInsert, {
+                  onConflict: 'site_id,product_id'
+                });
+
+              if (!variationError) {
+                syncedCount += variations.length;
+              }
+            }
+          } catch (varError) {
+            console.warn(`[RefreshProductCache] 获取变体失败 (产品 ${product.id}):`, varError);
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      hasMore = page < totalPages;
+      page++;
+
+      if (hasMore) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    } catch (error) {
+      console.error(`[RefreshProductCache] 获取页面 ${page} 失败:`, error);
+      failedCount++;
+      page++;
+      hasMore = page <= 50;
+    }
+  }
+
+  console.log(`[RefreshProductCache] 完成: 同步 ${syncedCount} 个，失败 ${failedCount} 个`);
+  return { synced: syncedCount, failed: failedCount };
+}
+
+// 获取产品变体（用于缓存刷新）
+async function fetchVariationsForCache(baseUrl: string, auth: string, productId: number): Promise<any[]> {
+  const allVariations: any[] = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    try {
+      const response = await fetch(
+        `${baseUrl}/wp-json/wc/v3/products/${productId}/variations?page=${page}&per_page=${perPage}`,
+        {
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(30000),
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) return allVariations;
+        throw new Error(`WooCommerce API error: ${response.status}`);
+      }
+
+      const variations = await response.json();
+      if (variations.length === 0) break;
+
+      allVariations.push(...variations);
+      if (variations.length < perPage) break;
+
+      page++;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (error) {
+      break;
+    }
+  }
+
+  return allVariations;
 }
 
 // 执行SKU批量同步

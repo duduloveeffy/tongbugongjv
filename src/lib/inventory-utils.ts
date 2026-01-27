@@ -130,8 +130,110 @@ export const getStockStatusColor = (netStock: number): string => {
 // 低库存阈值
 export const LOW_STOCK_THRESHOLD = 10;
 
+// 映射结果类型
+export interface MappedResult {
+  woocommerceSku: string;
+  isOnline: boolean;
+  status: string;
+  stockStatus: string;
+  stockQuantity?: number;
+  productUrl?: string;
+}
+
+// 分析所有映射结果，找出需要同步的项
+export interface MappedSyncAnalysis {
+  needSyncToInstock: MappedResult[];   // 需要同步为有货的映射
+  needSyncToOutofstock: MappedResult[]; // 需要同步为无货的映射
+  needSyncQuantity: MappedResult[];     // 需要同步数量的映射
+  alreadySynced: MappedResult[];        // 已同步的映射
+  total: number;
+}
+
+// 分析所有映射结果，判断哪些需要同步
+export const analyzeMappedResults = (
+  allMappedResults: MappedResult[] | undefined,
+  netStock: number
+): MappedSyncAnalysis => {
+  const result: MappedSyncAnalysis = {
+    needSyncToInstock: [],
+    needSyncToOutofstock: [],
+    needSyncQuantity: [],
+    alreadySynced: [],
+    total: 0
+  };
+
+  if (!allMappedResults || allMappedResults.length === 0) {
+    return result;
+  }
+
+  result.total = allMappedResults.length;
+
+  for (const mapped of allMappedResults) {
+    const wcStatus = mapped.stockStatus;
+    const wcQuantity = mapped.stockQuantity;
+
+    if (netStock <= 0) {
+      // ERP 无货
+      if (wcStatus === 'instock') {
+        result.needSyncToOutofstock.push(mapped);
+      } else {
+        result.alreadySynced.push(mapped);
+      }
+    } else if (netStock <= LOW_STOCK_THRESHOLD) {
+      // ERP 低库存 (1-10)
+      if (wcStatus === 'outofstock') {
+        // WC 无货但 ERP 有货，需要上架
+        result.needSyncToInstock.push(mapped);
+      } else if (wcQuantity !== undefined && wcQuantity === netStock) {
+        // 数量已同步
+        result.alreadySynced.push(mapped);
+      } else {
+        // 需要同步数量
+        result.needSyncQuantity.push(mapped);
+      }
+    } else {
+      // ERP 库存充足 (>10)
+      if (wcStatus === 'outofstock') {
+        result.needSyncToInstock.push(mapped);
+      } else {
+        result.alreadySynced.push(mapped);
+      }
+    }
+  }
+
+  return result;
+};
+
 // 获取同步按钮颜色（基于库存状态和净库存判断）
-export const getSyncButtonColor = (isOnline: boolean, netStock: number, stockStatus?: string, wcStockQuantity?: number): string => {
+// 支持多映射：检查所有映射结果，只要有一个需要同步就高亮
+export const getSyncButtonColor = (
+  isOnline: boolean,
+  netStock: number,
+  stockStatus?: string,
+  wcStockQuantity?: number,
+  allMappedResults?: MappedResult[]
+): string => {
+  // 如果有多个映射结果，分析所有映射
+  if (allMappedResults && allMappedResults.length > 0) {
+    const analysis = analyzeMappedResults(allMappedResults, netStock);
+    const needSync = analysis.needSyncToInstock.length + analysis.needSyncToOutofstock.length + analysis.needSyncQuantity.length;
+
+    if (analysis.needSyncToOutofstock.length > 0) {
+      return 'destructive'; // 红色 - 有需要下架的
+    }
+    if (analysis.needSyncQuantity.length > 0) {
+      if (needSync === 0 && analysis.alreadySynced.length === analysis.total) {
+        return 'warning-muted'; // 淡橙色 - 全部已同步
+      }
+      return 'warning'; // 橙色 - 需要同步数量
+    }
+    if (analysis.needSyncToInstock.length > 0) {
+      return 'default'; // 黑色 - 有需要上架的
+    }
+    return 'secondary'; // 灰色 - 全部正常
+  }
+
+  // 单个结果的逻辑（向后兼容）
   // 如果有库存状态信息，基于库存状态判断
   if (stockStatus) {
     if (stockStatus === 'instock' && netStock <= 0) return 'destructive'; // 红色 - 显示有货但净库存<=0
@@ -155,7 +257,56 @@ export const getSyncButtonColor = (isOnline: boolean, netStock: number, stockSta
 };
 
 // 获取同步按钮文本（基于当前库存状态显示切换操作）
-export const getSyncButtonText = (isOnline: boolean, netStock: number, currentStockStatus?: string, wcStockQuantity?: number): string => {
+// 支持多映射：显示需要同步的映射数量
+export const getSyncButtonText = (
+  isOnline: boolean,
+  netStock: number,
+  currentStockStatus?: string,
+  wcStockQuantity?: number,
+  allMappedResults?: MappedResult[]
+): string => {
+  // 如果有多个映射结果，分析所有映射并显示汇总
+  if (allMappedResults && allMappedResults.length > 0) {
+    const analysis = analyzeMappedResults(allMappedResults, netStock);
+    const toInstock = analysis.needSyncToInstock.length;
+    const toOutofstock = analysis.needSyncToOutofstock.length;
+    const toQuantity = analysis.needSyncQuantity.length;
+    const total = analysis.total;
+    const synced = analysis.alreadySynced.length;
+
+    // 所有都已同步且是低库存情况，显示已同步
+    if (synced === total && netStock > 0 && netStock <= LOW_STOCK_THRESHOLD) {
+      return `已同步(${netStock})`;
+    }
+
+    // 有需要下架的
+    if (toOutofstock > 0) {
+      if (toOutofstock === total) {
+        return '同步为无货';
+      }
+      return `${toOutofstock}个需下架`;
+    }
+
+    // 有需要同步数量的（低库存）
+    if (toQuantity > 0) {
+      if (toQuantity === total) {
+        return `同步数量(${netStock})`;
+      }
+      return `${toQuantity}个同步数量`;
+    }
+
+    // 有需要上架的
+    if (toInstock > 0) {
+      if (toInstock === total) {
+        return '同步为有货';
+      }
+      return `${toInstock}个需上架`;
+    }
+
+    // 所有都已同步的正常情况，继续到下面的原始逻辑
+  }
+
+  // 单个结果的逻辑（向后兼容）
   // 如果有当前库存状态，显示切换操作
   if (currentStockStatus) {
     // 低库存情况

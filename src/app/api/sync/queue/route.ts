@@ -139,6 +139,12 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    // 立即触发处理器执行任务（不等待结果）
+    console.log(`[Queue] 任务已创建，立即触发处理器...`);
+    triggerProcessor().catch(err => {
+      console.error('[Queue] 触发处理器失败:', err);
+    });
+
     return NextResponse.json({
       success: true,
       task
@@ -146,9 +152,33 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Queue POST error:', error);
-    return NextResponse.json({ 
-      error: error.message || 'Internal server error' 
+    return NextResponse.json({
+      error: error.message || 'Internal server error'
     }, { status: 500 });
+  }
+}
+
+// 异步触发处理器
+async function triggerProcessor() {
+  try {
+    // 使用内部调用标记，绕过认证
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const response = await fetch(`${baseUrl}/api/sync/queue/processor`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-call': 'dispatcher'
+      }
+    });
+
+    if (!response.ok) {
+      console.error('[Queue] 处理器响应错误:', response.status);
+    } else {
+      const result = await response.json();
+      console.log('[Queue] 处理器响应:', result);
+    }
+  } catch (error) {
+    console.error('[Queue] 调用处理器异常:', error);
   }
 }
 

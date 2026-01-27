@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -72,6 +72,7 @@ export function TaskQueueMonitor({ onClose }: TaskQueueMonitorProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const isProcessingRef = useRef(false);
 
   // 获取任务队列
   const fetchQueue = useCallback(async () => {
@@ -98,36 +99,45 @@ export function TaskQueueMonitor({ onClose }: TaskQueueMonitorProps) {
   }, []);
 
   // 处理队列中的任务
-  const processQueue = async () => {
-    if (isProcessing) return;
-    
+  const processQueue = useCallback(async () => {
+    // 使用 ref 来防止并发调用
+    if (isProcessingRef.current) {
+      console.log('[TaskQueueMonitor] 已有任务在处理中，跳过');
+      return;
+    }
+
+    isProcessingRef.current = true;
     setIsProcessing(true);
     try {
+      console.log('[TaskQueueMonitor] 调用处理器 API...');
       const response = await fetch('/api/sync/queue/processor', {
         method: 'POST'
       });
-      
+
       if (!response.ok) throw new Error('Failed to process queue');
-      
+
       const result = await response.json();
-      
+      console.log('[TaskQueueMonitor] 处理器返回:', result);
+
       if (result.success) {
         toast.success('任务处理成功');
       } else if (result.message === 'No pending tasks') {
-        toast.info('没有待处理的任务');
+        // 静默处理，不显示提示
+        console.log('[TaskQueueMonitor] 没有待处理任务');
       } else if (result.message === 'Max concurrent tasks reached') {
-        toast.warning('已达到最大并发数限制');
+        console.log('[TaskQueueMonitor] 已达最大并发');
       }
-      
+
       // 刷新队列
       await fetchQueue();
     } catch (error: any) {
       console.error('Failed to process queue:', error);
       toast.error('处理任务失败');
     } finally {
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
-  };
+  }, [fetchQueue]);
 
   // 取消任务
   const cancelTask = async (taskId: string) => {
@@ -206,14 +216,15 @@ export function TaskQueueMonitor({ onClose }: TaskQueueMonitorProps) {
 
   // 自动处理队列
   useEffect(() => {
-    if (stats.pending > 0 && stats.processing < 2) {
+    if (stats.pending > 0 && stats.processing < 2 && !isProcessingRef.current) {
       // 有待处理任务且处理中的任务少于2个时，自动处理
+      console.log(`[TaskQueueMonitor] 检测到 ${stats.pending} 个待处理任务，自动触发处理...`);
       const timer = setTimeout(() => {
         processQueue();
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [stats.pending, stats.processing]);
+  }, [stats.pending, stats.processing, processQueue]);
 
   // 获取状态图标
   const getStatusIcon = (status: string) => {

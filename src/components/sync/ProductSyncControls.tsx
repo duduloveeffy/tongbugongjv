@@ -56,6 +56,7 @@ export function ProductSyncControls({
   const syncNeeds = calculateBatchSyncNeeds(filteredData);
   const toInstockCount = Array.from(syncNeeds.values()).filter(n => n === 'to-instock').length;
   const toOutofstockCount = Array.from(syncNeeds.values()).filter(n => n === 'to-outofstock').length;
+  const toQuantityCount = Array.from(syncNeeds.values()).filter(n => n === 'to-quantity').length;
 
   const handleStartDetection = () => {
     if (filteredData.length === 0) {
@@ -141,13 +142,13 @@ export function ProductSyncControls({
             )}
 
             {/* 同步需求统计 */}
-            {(toInstockCount > 0 || toOutofstockCount > 0) && (
+            {(toInstockCount > 0 || toOutofstockCount > 0 || toQuantityCount > 0) && (
               <Alert>
                 <Info className="h-4 w-4" />
                 <AlertDescription>
                   <div className="space-y-1">
                     <div>当前筛选数据中：</div>
-                    <div className="flex gap-4 text-sm">
+                    <div className="flex gap-4 text-sm flex-wrap">
                       {toInstockCount > 0 && (
                         <span className="text-blue-600">
                           • {toInstockCount} 个产品建议同步为有货
@@ -156,6 +157,11 @@ export function ProductSyncControls({
                       {toOutofstockCount > 0 && (
                         <span className="text-red-600">
                           • {toOutofstockCount} 个产品建议同步为无货
+                        </span>
+                      )}
+                      {toQuantityCount > 0 && (
+                        <span className="text-orange-600">
+                          • {toQuantityCount} 个产品需同步库存数量
                         </span>
                       )}
                     </div>

@@ -30,6 +30,10 @@ const PUBLIC_ROUTES = [
   '/api/debug',
   // Products cache sync API
   '/api/sync/products-cache',
+  // Queue processor API (called internally by frontend and cron)
+  '/api/sync/queue/processor',
+  // Cron refresh cache API
+  '/api/cron/refresh-cache',
 ];
 
 // Routes that are view-only (no sensitive data)

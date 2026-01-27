@@ -1,11 +1,11 @@
 import { toast } from 'sonner';
-import type { InventoryItem } from './inventory-utils';
-import { calculateNetStock } from './inventory-utils';
+import type { InventoryItem, MappedResult } from './inventory-utils';
+import { calculateNetStock, analyzeMappedResults } from './inventory-utils';
 import type { SyncRule } from './sync-rules';
 import { calculateSyncAction as calculateSyncActionFromRules } from './sync-rules';
 
 // 同步需求类型
-export type SyncNeed = 'to-instock' | 'to-outofstock' | 'none';
+export type SyncNeed = 'to-instock' | 'to-outofstock' | 'to-quantity' | 'none';
 
 // 产品检测结果
 export interface ProductDetectionResult {
@@ -66,11 +66,32 @@ export interface SiteInfo {
 
 /**
  * 计算SKU的同步需求
+ * 支持多映射：检查所有映射结果，只要有一个需要同步就返回对应需求
  */
 export function calculateSyncNeed(item: InventoryItem): SyncNeed {
   if (!item.productData) return 'none';
 
   const netStock = calculateNetStock(item);
+  const allMappedResults = item.productData.allMappedResults as MappedResult[] | undefined;
+
+  // 如果有多个映射结果，分析所有映射
+  if (allMappedResults && allMappedResults.length > 0) {
+    const analysis = analyzeMappedResults(allMappedResults, netStock);
+
+    // 优先级：下架 > 数量同步 > 上架
+    if (analysis.needSyncToOutofstock.length > 0) {
+      return 'to-outofstock';
+    }
+    if (analysis.needSyncQuantity.length > 0) {
+      return 'to-quantity';
+    }
+    if (analysis.needSyncToInstock.length > 0) {
+      return 'to-instock';
+    }
+    return 'none';
+  }
+
+  // 单个结果的逻辑（向后兼容）
   const stockStatus = item.productData.stockStatus;
 
   // 需要同步为无货：显示有货但净库存≤0
@@ -88,6 +109,7 @@ export function calculateSyncNeed(item: InventoryItem): SyncNeed {
 
 /**
  * 批量计算同步需求
+ * 返回所有需要同步的 SKU 及其同步类型
  */
 export function calculateBatchSyncNeeds(items: InventoryItem[]): Map<string, SyncNeed> {
   const needs = new Map<string, SyncNeed>();
